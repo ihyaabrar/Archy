@@ -2,7 +2,13 @@ import { describe, expect, it } from 'vitest'
 import {
   clampOpening,
   emptyProject,
+  addLevel,
+  elevationOf,
+  levelsOf,
   lockAngle,
+  moveVertex,
+  onLevel,
+  removeLevel,
   nearestWall,
   parseProject,
   polygonArea,
@@ -50,6 +56,53 @@ describe('geometri', () => {
 
   it('luas poligon', () => {
     expect(polygonArea([[0, 0], [4, 0], [4, 3], [0, 3]])).toBe(12)
+  })
+})
+
+describe('moveVertex', () => {
+  it('menggeser sudut bersama: dinding tersambung, ruangan, dan bukaan tetap di tempat', () => {
+    const w2: Wall = { id: 'w2', a: [4, 0], b: [4, 3], thickness: 0.15, height: 3 }
+    const p = {
+      ...emptyProject(),
+      walls: [wall, w2],
+      openings: [door(1)],
+      rooms: [{ id: 'r', name: 'R', points: [[0, 0], [4, 0], [4, 3]] as [number, number][] }],
+    }
+    const out = moveVertex(p, [4, 0], [5, 0])
+    expect(out.walls[0].b).toEqual([5, 0])
+    expect(out.walls[1].a).toEqual([5, 0])
+    expect(out.rooms[0].points[1]).toEqual([5, 0])
+    expect(out.openings[0].at).toBeCloseTo(1) // pintu tetap 1 m dari ujung a
+    const moveA = moveVertex(p, [0, 0], [-1, 0])
+    expect(moveA.openings[0].at).toBeCloseTo(2) // ujung a mundur 1 m: jarak pintu dari a bertambah, posisi dunia sama
+  })
+})
+
+describe('lantai', () => {
+  it('proyek lama = satu lantai, elemen tanpa level ada di lantai pertama', () => {
+    const p = { ...emptyProject(), walls: [wall] }
+    expect(levelsOf(p).map((l) => l.name)).toEqual(['Lantai 1'])
+    expect(onLevel(p, 'L1').walls).toHaveLength(1)
+  })
+
+  it('tambah lantai di atas, pisahkan isi, hapus lantai beserta isinya', () => {
+    const base = { ...emptyProject(), walls: [wall], openings: [door(1)] }
+    const { project: p2, id } = addLevel(base)
+    expect(elevationOf(p2, id)).toBeCloseTo(3.2)
+    const p3 = { ...p2, walls: [...p2.walls, { ...wall, id: 'w2', level: id }] }
+    expect(onLevel(p3, id).walls.map((w) => w.id)).toEqual(['w2'])
+    expect(onLevel(p3, 'L1').openings).toHaveLength(1)
+    const back = removeLevel(p3, id)
+    expect(levelsOf(back)).toHaveLength(1)
+    expect(back.walls.map((w) => w.id)).toEqual(['w1'])
+    const noFirst = removeLevel(p3, 'L1')
+    expect(noFirst.walls.map((w) => w.id)).toEqual(['w2'])
+    expect(noFirst.openings).toHaveLength(0) // pintu ikut dinding yang dihapus
+    expect(removeLevel(base, 'L1')).toBe(base) // lantai terakhir tidak bisa dihapus
+  })
+
+  it('menolak elemen yang menunjuk lantai tak ada', () => {
+    expect(() => parseProject({ ...emptyProject(), levels: [{ id: 'L1', name: 'A', elevation: 0 }], walls: [{ ...wall, level: 'X' }] })).toThrow()
   })
 })
 

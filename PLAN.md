@@ -33,8 +33,9 @@ Satuan meter. Dinding menyimpan titik, bukan mesh. 3D dibangun ulang dari data.
 1. **Editor 2D.** Kanvas SVG, grid, snap, gambar dinding, tambah pintu dan jendela, nama ruangan, dimensi otomatis, undo/redo. Tampilan gaya blueprint.
 2. **Generator 3D.** Extrude dinding, lubang pintu/jendela (CSG atau segmen dinding), lantai, atap datar. Animasi denah naik ke 3D.
 3. **Room tour.** Jalan orang pertama (WASD + sentuh), tur otomatis per ruangan, tautan bagikan.
-4. **Proyek dan ekspor.** Akun, simpan/buka proyek, ekspor PNG, PDF, GLB.
-5. **Lanjutan.** Material, matahari dan bayangan, potongan dan exploded, furnitur, kolaborasi.
+4. **Proyek dan ekspor.** Banyak proyek di browser, impor/ekspor file proyek, ekspor PNG, PDF (cetak 1:100), GLB. Akun (Supabase lewat Vercel) dan sinkron cloud sudah dikodekan; tertunda: simpan CA Supabase ke `supabase/ca.crt` lalu `npm run db:apply`.
+5. **Sudah:** furnitur, material dan matahari, rapikan dasar, presentasi scroll (`/presentasi`), bangunan bertingkat dengan tangga, volume material dan CSV untuk RAB.
+6. **Lanjutan.** Material, matahari dan bayangan, potongan dan exploded, furnitur, kolaborasi.
 
 ## Risiko
 - Editor denah paling berat. Mulai dari model data dan editor, bukan animasi.

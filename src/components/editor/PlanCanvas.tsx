@@ -1,29 +1,35 @@
 'use client'
 
-import { useRef, useState, type PointerEvent as RPointerEvent, type ReactNode } from 'react'
+import { useMemo, useRef, useState, type PointerEvent as RPointerEvent } from 'react'
 import {
   OPENING_DEFAULTS,
   WALL_DEFAULTS,
   centroid,
   clampOpening,
   dist,
+  levelsOf,
   lockAngle,
+  moveVertex,
   nearestWall,
-  pointAlong,
+  onLevel,
+  withLevel,
   polygonArea,
   snap,
   snapToEndpoint,
   uid,
   wallLength,
-  wallSpans,
   type Opening,
   type Point,
+  type Room,
   type Wall,
 } from '@/lib/project'
+import { dimensionLabel, openingSymbol, planCenter as getPlanCenter, wallPolygons } from '@/lib/drawing'
 import { useProject } from '@/lib/store'
+import { dims, symbol, type Furniture, type FurnitureKind } from '@/lib/furniture'
+import { DEFAULT_FLOOR, FLOORS } from '@/lib/materials'
 
-export type Tool = 'select' | 'wall' | 'door' | 'window' | 'room'
-export type Selection = { kind: 'wall' | 'opening' | 'room'; id: string } | null
+export type Tool = 'select' | 'wall' | 'door' | 'window' | 'room' | 'furniture'
+export type Selection = { kind: 'wall' | 'opening' | 'room' | 'furniture'; id: string } | null
 export type View = { tx: number; ty: number; s: number } // s = piksel per meter
 
 const GRID_SNAP = 0.05
@@ -37,15 +43,37 @@ type Props = {
   setSelection: (s: Selection) => void
   draft: Point[]
   setDraft: (d: Point[]) => void
+  furnitureKind: FurnitureKind
+  placeRot: number
+  level: string
 }
 
-export function PlanCanvas({ tool, view, setView, selection, setSelection, draft, setDraft }: Props) {
-  const project = useProject((s) => s.project)
+export function PlanCanvas({ tool, view, setView, selection, setSelection, draft, setDraft, furnitureKind, placeRot, level }: Props) {
+  const full = useProject((s) => s.project)
+  // Kanvas hanya membaca dan menyunting lantai aktif.
+  const project = useMemo(() => onLevel(full, level), [full, level])
+  const below = useMemo(() => {
+    const ls = levelsOf(full)
+    const me = ls.find((l) => l.id === level)
+    const lower = ls.filter((l) => me && l.elevation < me.elevation).sort((a, b) => b.elevation - a.elevation)[0]
+    return lower ? onLevel(full, lower.id) : null
+  }, [full, level])
   const apply = useProject((s) => s.apply)
   const svgRef = useRef<SVGSVGElement>(null)
   const [cursor, setCursor] = useState<Point | null>(null)
   const [freeAngle, setFreeAngle] = useState(false)
   const pan = useRef<{ x: number; y: number } | null>(null)
+  // Furnitur yang sedang diseret: posisi sementara, baru dicatat ke riwayat saat dilepas (satu langkah undo).
+  const [drag, setDrag] = useState<{ id: string; offset: Point; pos: Point; moved: boolean } | null>(null)
+  // Titik sudut dinding yang sedang diseret (dari posisi lama ke posisi baru).
+  const [vdrag, setVdrag] = useState<{ from: Point; to: Point } | null>(null)
+
+  // Tangkap pointer supaya seretan tetap terbaca di luar kanvas. Bisa gagal (pointer sudah lepas); itu tidak fatal.
+  const capture = (id: number) => {
+    try {
+      svgRef.current!.setPointerCapture(id)
+    } catch {}
+  }
 
   const toWorld = (e: { clientX: number; clientY: number }): Point => {
     const r = svgRef.current!.getBoundingClientRect()
@@ -70,44 +98,127 @@ export function PlanCanvas({ tool, view, setView, selection, setSelection, draft
     return { id: 'preview', wallId: hit.wall.id, at: clampOpening(hit.t, d.width, hit.wall), kind: tool, ...d }
   }
 
+  // Layar sentuh: dua jari = pinch-zoom + geser; satu jari di alat gambar baru menaruh titik saat diangkat
+  // (ketukan), supaya jari pertama dari pinch tidak ikut menaruh titik. Seret satu jari = geser kanvas.
+  const touches = useRef(new Map<number, { x: number; y: number }>())
+  const pinch = useRef<{ d: number; mx: number; my: number } | null>(null)
+  const tap = useRef<{ x: number; y: number; alt: boolean } | null>(null)
+
+  const touchSpread = () => {
+    const [a, b] = [...touches.current.values()]
+    const r = svgRef.current!.getBoundingClientRect()
+    return { d: Math.hypot(b.x - a.x, b.y - a.y), mx: (a.x + b.x) / 2 - r.left, my: (a.y + b.y) / 2 - r.top }
+  }
+
   const onDown = (e: RPointerEvent<SVGSVGElement>) => {
+    if (e.pointerType === 'touch') {
+      touches.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+      capture(e.pointerId)
+      if (touches.current.size === 2) {
+        tap.current = null
+        pan.current = null
+        pinch.current = touchSpread()
+        return
+      }
+      if (tool !== 'select') {
+        tap.current = { x: e.clientX, y: e.clientY, alt: false }
+        pan.current = { x: e.clientX, y: e.clientY }
+        return
+      }
+    }
     // Elemen yang diklik dengan alat Pilih sudah menghentikan event, jadi yang sampai sini adalah area kosong.
     if (e.button === 1 || tool === 'select') {
       pan.current = { x: e.clientX, y: e.clientY }
-      svgRef.current!.setPointerCapture(e.pointerId)
+      capture(e.pointerId)
       if (tool === 'select') setSelection(null)
       return
     }
     if (e.button !== 0) return
-    const p = workPoint(toWorld(e), e.altKey)
+    place(e.clientX, e.clientY, e.altKey)
+  }
+
+  const place = (clientX: number, clientY: number, alt: boolean) => {
+    const raw = toWorld({ clientX, clientY })
+    const p = workPoint(raw, alt)
 
     if (tool === 'wall') {
       const from = draft.at(-1)
       if (!from) return setDraft([p])
       if (dist(from, p) < GRID_SNAP) return
-      apply((pr) => ({ ...pr, walls: [...pr.walls, { id: uid(), a: from, b: p, ...WALL_DEFAULTS }] }))
+      apply((pr) => ({ ...pr, walls: [...pr.walls, { id: uid(), a: from, b: p, ...WALL_DEFAULTS, level }] }))
       setDraft([p])
     } else if (tool === 'room') {
       if (draft.length >= 3 && dist(draft[0], p) <= pick) return closeRoom(draft)
       if (draft.at(-1) && dist(draft.at(-1)!, p) < GRID_SNAP) return
       setDraft([...draft, p])
     } else if (tool === 'door' || tool === 'window') {
-      const o = openingPreview(toWorld(e))
+      const o = openingPreview(raw)
       if (!o) return
       const id = uid()
       apply((pr) => ({ ...pr, openings: [...pr.openings, { ...o, id }] }))
       setSelection({ kind: 'opening', id })
+    } else if (tool === 'furniture') {
+      const id = uid()
+      const pos = snap(raw, GRID_SNAP)
+      apply((pr) => ({ ...pr, furniture: [...pr.furniture, { id, kind: furnitureKind, pos, rot: placeRot, level }] }))
+      setSelection({ kind: 'furniture', id })
     }
+  }
+
+  const startDrag = (f: Furniture) => (e: RPointerEvent) => {
+    if (tool !== 'select' || e.button !== 0) return
+    e.stopPropagation()
+    setSelection({ kind: 'furniture', id: f.id })
+    const w = toWorld(e)
+    setDrag({ id: f.id, offset: [w[0] - f.pos[0], w[1] - f.pos[1]], pos: f.pos, moved: false })
+    capture(e.pointerId)
   }
 
   const closeRoom = (pts: Point[]) => {
     const id = uid()
-    apply((pr) => ({ ...pr, rooms: [...pr.rooms, { id, name: `Ruang ${pr.rooms.length + 1}`, points: pts }] }))
+    apply((pr) => ({ ...pr, rooms: [...pr.rooms, { id, name: `Ruang ${pr.rooms.length + 1}`, points: pts, level }] }))
     setDraft([])
     setSelection({ kind: 'room', id })
   }
 
+  const startVertexDrag = (from: Point) => (e: RPointerEvent) => {
+    if (e.button !== 0) return
+    e.stopPropagation()
+    setVdrag({ from, to: from })
+    capture(e.pointerId)
+  }
+
   const onMove = (e: RPointerEvent<SVGSVGElement>) => {
+    if (e.pointerType === 'touch' && touches.current.has(e.pointerId)) {
+      touches.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+      if (pinch.current && touches.current.size === 2) {
+        const now = touchSpread()
+        const prev = pinch.current
+        pinch.current = now
+        setView((v) => {
+          const s = Math.min(400, Math.max(8, (v.s * now.d) / (prev.d || now.d)))
+          // Titik di bawah tengah dua jari tetap di tempat, lalu ikut bergeser bersama jari.
+          return { s, tx: now.mx - ((prev.mx - v.tx) * s) / v.s, ty: now.my - ((prev.my - v.ty) * s) / v.s }
+        })
+        return
+      }
+      if (tap.current && Math.hypot(e.clientX - tap.current.x, e.clientY - tap.current.y) > 10) tap.current = null
+    }
+    if (vdrag) {
+      // Tarik ke ujung dinding lain (bukan titik yang sedang digeser), lalu grid.
+      const w = toWorld(e)
+      const ends = project.walls.flatMap((x) => [x.a, x.b]).filter((q) => dist(q, vdrag.from) > 1e-6)
+      const near = ends.reduce<Point | null>((best, q) => (dist(q, w) <= pick && (!best || dist(q, w) < dist(best, w)) ? q : best), null)
+      const to = near ?? snap(w, GRID_SNAP)
+      if (to[0] !== vdrag.to[0] || to[1] !== vdrag.to[1]) setVdrag({ ...vdrag, to })
+      return
+    }
+    if (drag) {
+      const w = toWorld(e)
+      const pos = snap([w[0] - drag.offset[0], w[1] - drag.offset[1]], GRID_SNAP)
+      if (pos[0] !== drag.pos[0] || pos[1] !== drag.pos[1]) setDrag({ ...drag, pos, moved: true })
+      return
+    }
     if (pan.current) {
       const dx = e.clientX - pan.current.x
       const dy = e.clientY - pan.current.y
@@ -119,8 +230,29 @@ export function PlanCanvas({ tool, view, setView, selection, setSelection, draft
     setCursor(toWorld(e))
   }
 
-  const onUp = () => {
+  const onUp = (e: RPointerEvent<SVGSVGElement>) => {
+    if (e.pointerType === 'touch') {
+      touches.current.delete(e.pointerId)
+      if (touches.current.size < 2) pinch.current = null
+      if (tap.current && e.type === 'pointerup') place(tap.current.x, tap.current.y, false)
+      tap.current = null
+    }
     pan.current = null
+    if (drag?.moved) {
+      const { id, pos } = drag
+      apply((pr) => ({ ...pr, furniture: pr.furniture.map((f) => (f.id === id ? { ...f, pos } : f)) }))
+    }
+    setDrag(null)
+    if (vdrag && dist(vdrag.from, vdrag.to) > 1e-6) {
+      const { from, to } = vdrag
+      // Dinding yang menyusut jadi titik dibuang supaya tidak ada dinding nol meter.
+      apply((all) => withLevel(all, level, (pr) => {
+        const next = moveVertex(pr, from, to)
+        const gone = new Set(next.walls.filter((w) => dist(w.a, w.b) < GRID_SNAP).map((w) => w.id))
+        return gone.size ? { ...next, walls: next.walls.filter((w) => !gone.has(w.id)), openings: next.openings.filter((o) => !gone.has(o.wallId)) } : next
+      }))
+    }
+    setVdrag(null)
   }
 
   const onWheel = (e: React.WheelEvent<SVGSVGElement>) => {
@@ -143,7 +275,9 @@ export function PlanCanvas({ tool, view, setView, selection, setSelection, draft
   const work = cursor ? workPoint(cursor, freeAngle) : null
   const preview = cursor ? openingPreview(cursor) : null
   const k = 1 / view.s // satu piksel layar dalam meter
-  const planCenter = project.walls.length ? centroid(project.walls.flatMap((w) => [w.a, w.b])) : undefined
+  // Saat titik dinding diseret, gambar memakai denah sementara; riwayat baru dicatat saat dilepas.
+  const shown = vdrag ? moveVertex(project, vdrag.from, vdrag.to) : project
+  const planCenter = getPlanCenter(shown)
 
   return (
     <svg
@@ -177,27 +311,66 @@ export function PlanCanvas({ tool, view, setView, selection, setSelection, draft
       <rect width="100%" height="100%" fill="url(#grid-major)" />
 
       <g transform={`translate(${view.tx} ${view.ty}) scale(${view.s})`}>
-        {project.rooms.map((r) => (
+        {shown.rooms.map((r) => (
           <g key={r.id} onPointerDown={selectOn({ kind: 'room', id: r.id })}>
-            <polygon points={r.points.join(' ')} className={isSel('room', r.id) ? 'room room-sel' : 'room'} />
-            <RoomLabel name={r.name} points={r.points} k={k} />
+            <polygon
+              points={r.points.join(' ')}
+              className={isSel('room', r.id) ? 'room room-sel' : 'room'}
+              style={isSel('room', r.id) ? undefined : { fill: FLOORS[r.floor ?? DEFAULT_FLOOR].plan }}
+            />
           </g>
         ))}
 
-        {project.walls.map((w) => (
-          <WallShape key={w.id} wall={w} openings={project.openings} selected={isSel('wall', w.id)} onDown={selectOn({ kind: 'wall', id: w.id })} />
+        {/* Lantai di bawahnya tampil samar sebagai acuan supaya dinding antar lantai bisa disejajarkan. */}
+        {below?.walls.map((w) => (
+          <g key={'below' + w.id} className="below">
+            {wallPolygons(w, below.openings).map((poly, i) => (
+              <polygon key={i} points={poly.join(' ')} />
+            ))}
+          </g>
         ))}
 
-        {project.openings.map((o) => {
-          const w = project.walls.find((x) => x.id === o.wallId)
+        {project.furniture.map((f) => (
+          <FurnitureShape
+            key={f.id}
+            f={drag?.id === f.id ? { ...f, pos: drag.pos } : f}
+            selected={isSel('furniture', f.id)}
+            onDown={startDrag(f)}
+          />
+        ))}
+
+        {shown.walls.map((w) => (
+          <WallShape key={w.id} wall={w} openings={shown.openings} selected={isSel('wall', w.id)} onDown={selectOn({ kind: 'wall', id: w.id })} />
+        ))}
+
+        {shown.openings.map((o) => {
+          const w = shown.walls.find((x) => x.id === o.wallId)
           return w ? (
             <OpeningShape key={o.id} o={o} wall={w} selected={isSel('opening', o.id)} onDown={selectOn({ kind: 'opening', id: o.id })} />
           ) : null
         })}
 
-        {project.walls.map((w) => (
-          <Dimension key={w.id} a={w.a} b={w.b} k={k} offset={w.thickness / 2 + 14 * k} away={planCenter} />
+        {/* Nama ruangan di atas furnitur supaya selalu terbaca. */}
+        {shown.rooms.map((r) => (
+          <RoomLabel key={r.id} name={r.name} points={r.points} k={k} />
         ))}
+
+        {shown.walls.map((w) => (
+          <Dimension key={w.id} a={w.a} b={w.b} k={k} offset={w.thickness / 2 + 14 * k} away={planCenter} rooms={shown.rooms} />
+        ))}
+
+        {tool === 'select' &&
+          selection?.kind === 'wall' &&
+          shown.walls
+            .filter((w) => w.id === selection.id)
+            .flatMap((w) => [w.a, w.b])
+            .map((q, i) => (
+              <g key={i} className="handle" onPointerDown={startVertexDrag(vdrag ? vdrag.from : q)}>
+                {/* Area sentuh 22 px, titik terlihat 7 px. */}
+                <circle cx={q[0]} cy={q[1]} r={22 * k} className="handle-hit" />
+                <circle cx={q[0]} cy={q[1]} r={7 * k} className="handle-dot" />
+              </g>
+            ))}
 
         {preview && (
           <OpeningShape o={preview} wall={project.walls.find((w) => w.id === preview.wallId)!} selected ghost />
@@ -211,7 +384,11 @@ export function PlanCanvas({ tool, view, setView, selection, setSelection, draft
           </g>
         )}
 
-        {work && tool !== 'select' && tool !== 'door' && tool !== 'window' && (
+        {cursor && tool === 'furniture' && (
+          <FurnitureShape f={{ id: 'preview', kind: furnitureKind, pos: snap(cursor, GRID_SNAP), rot: placeRot }} selected ghost />
+        )}
+
+        {work && (tool === 'wall' || tool === 'room') && (
           <g className="crosshair">
             <circle cx={work[0]} cy={work[1]} r={4 * k} />
           </g>
@@ -222,71 +399,52 @@ export function PlanCanvas({ tool, view, setView, selection, setSelection, draft
 }
 
 function WallShape({ wall, openings, selected, onDown }: { wall: Wall; openings: Opening[]; selected: boolean; onDown: (e: RPointerEvent) => void }) {
-  const len = wallLength(wall)
-  if (len === 0) return null
-  const nx = (-(wall.b[1] - wall.a[1]) / len) * (wall.thickness / 2)
-  const ny = ((wall.b[0] - wall.a[0]) / len) * (wall.thickness / 2)
   return (
     <g className={selected ? 'wall wall-sel' : 'wall'} onPointerDown={onDown}>
-      {wallSpans(wall, openings).map(([t0, t1]) => {
-        const p = pointAlong(wall, t0)
-        const q = pointAlong(wall, t1)
-        return <polygon key={t0} points={`${p[0] + nx},${p[1] + ny} ${q[0] + nx},${q[1] + ny} ${q[0] - nx},${q[1] - ny} ${p[0] - nx},${p[1] - ny}`} />
-      })}
+      {wallPolygons(wall, openings).map((poly, i) => (
+        <polygon key={i} points={poly.join(' ')} />
+      ))}
     </g>
   )
 }
 
 function OpeningShape({ o, wall, selected, ghost, onDown }: { o: Opening; wall: Wall; selected: boolean; ghost?: boolean; onDown?: (e: RPointerEvent) => void }) {
-  const len = wallLength(wall)
-  const ux = (wall.b[0] - wall.a[0]) / len
-  const uy = (wall.b[1] - wall.a[1]) / len
-  const p = pointAlong(wall, o.at - o.width / 2)
-  const q = pointAlong(wall, o.at + o.width / 2)
-  const h = wall.thickness / 2
+  const { p, q, lines, arc } = openingSymbol(o, wall)
   const cls = `opening ${selected ? 'opening-sel' : ''} ${ghost ? 'opening-ghost' : ''}`
-  let body: ReactNode
-  if (o.kind === 'door') {
-    // Daun pintu tegak lurus dinding dari engsel p, dengan busur ayun ke q.
-    const leaf: Point = [p[0] - uy * o.width, p[1] + ux * o.width]
-    body = (
-      <>
-        <line x1={p[0]} y1={p[1]} x2={leaf[0]} y2={leaf[1]} vectorEffect="non-scaling-stroke" />
-        <path d={`M ${leaf[0]} ${leaf[1]} A ${o.width} ${o.width} 0 0 0 ${q[0]} ${q[1]}`} className="swing" vectorEffect="non-scaling-stroke" />
-      </>
-    )
-  } else {
-    body = (
-      <>
-        <line x1={p[0] - uy * h} y1={p[1] + ux * h} x2={q[0] - uy * h} y2={q[1] + ux * h} vectorEffect="non-scaling-stroke" />
-        <line x1={p[0]} y1={p[1]} x2={q[0]} y2={q[1]} vectorEffect="non-scaling-stroke" />
-        <line x1={p[0] + uy * h} y1={p[1] - ux * h} x2={q[0] + uy * h} y2={q[1] - ux * h} vectorEffect="non-scaling-stroke" />
-      </>
-    )
-  }
   return (
     <g className={cls} onPointerDown={onDown}>
       {/* Area tangkap tak terlihat supaya bukaan mudah dipilih. */}
-      <line x1={p[0]} y1={p[1]} x2={q[0]} y2={q[1]} strokeWidth={Math.max(h * 2, 0.3)} className="hit" />
-      {body}
+      <line x1={p[0]} y1={p[1]} x2={q[0]} y2={q[1]} strokeWidth={Math.max(wall.thickness, 0.3)} className="hit" />
+      {lines.map(([a, b], i) => (
+        <line key={i} x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} vectorEffect="non-scaling-stroke" />
+      ))}
+      {arc && <path d={arc} className="swing" vectorEffect="non-scaling-stroke" />}
     </g>
   )
 }
 
-// Label ukuran diletakkan di sisi dinding yang menjauhi `away` (tengah denah), seperti dimensi luar di gambar kerja.
-function Dimension({ a, b, k, offset, away }: { a: Point; b: Point; k: number; offset: number; away?: Point }) {
-  const len = dist(a, b)
-  if (len < 0.05) return null
-  let nx = -(b[1] - a[1]) / len
-  let ny = (b[0] - a[0]) / len
-  if (away && ((a[0] + b[0]) / 2 - away[0]) * nx + ((a[1] + b[1]) / 2 - away[1]) * ny < 0) [nx, ny] = [-nx, -ny]
-  const mx = (a[0] + b[0]) / 2 + nx * offset
-  const my = (a[1] + b[1]) / 2 + ny * offset
-  let ang = (Math.atan2(b[1] - a[1], b[0] - a[0]) * 180) / Math.PI
-  if (ang > 90 || ang < -90) ang += 180 // teks tidak pernah terbalik
+function FurnitureShape({ f, selected, ghost, onDown }: { f: Furniture; selected: boolean; ghost?: boolean; onDown?: (e: RPointerEvent) => void }) {
+  const { w, d } = dims(f)
   return (
-    <text className="dim" x={mx} y={my} fontSize={11 * k} transform={`rotate(${ang} ${mx} ${my})`} textAnchor="middle" dominantBaseline="middle">
-      {len.toFixed(2)}
+    <g
+      className={`furn ${selected ? 'furn-sel' : ''} ${ghost ? 'furn-ghost' : ''}`}
+      transform={`translate(${f.pos[0]} ${f.pos[1]}) rotate(${f.rot})`}
+      onPointerDown={onDown}
+    >
+      <rect x={-w / 2} y={-d / 2} width={w} height={d} className="furn-body" />
+      {symbol(f.kind, w, d).map((path, i) => (
+        <path key={i} d={path} vectorEffect="non-scaling-stroke" />
+      ))}
+    </g>
+  )
+}
+
+function Dimension({ a, b, k, offset, away, rooms = [] }: { a: Point; b: Point; k: number; offset: number; away?: Point; rooms?: Room[] }) {
+  const d = dimensionLabel(a, b, offset, { rooms }, away)
+  if (!d) return null
+  return (
+    <text className="dim halo" x={d.x} y={d.y} fontSize={11 * k} strokeWidth={3 * k} transform={`rotate(${d.angle} ${d.x} ${d.y})`} textAnchor="middle" dominantBaseline="middle">
+      {d.text}
     </text>
   )
 }
@@ -295,10 +453,10 @@ function RoomLabel({ name, points, k }: { name: string; points: Point[]; k: numb
   const [x, y] = centroid(points)
   return (
     <g className="room-label">
-      <text x={x} y={y - 7 * k} fontSize={13 * k} textAnchor="middle" className="room-name">
+      <text x={x} y={y - 7 * k} fontSize={13 * k} strokeWidth={3 * k} textAnchor="middle" className="room-name halo">
         {name}
       </text>
-      <text x={x} y={y + 9 * k} fontSize={10 * k} textAnchor="middle" className="dim">
+      <text x={x} y={y + 9 * k} fontSize={10 * k} strokeWidth={3 * k} textAnchor="middle" className="dim halo">
         {polygonArea(points).toFixed(1)} m²
       </text>
     </g>
