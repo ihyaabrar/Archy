@@ -2,7 +2,7 @@
 // supaya hasil ekspor sama persis dengan yang terlihat di layar.
 
 import { centroid, dist, levelsOf, onLevel, pointAlong, polygonArea, wallLength, wallSpans, type Opening, type Point, type Project, type Wall } from './project'
-import { roomAt } from './walk'
+import { distToSegment, inPolygon, roomAt } from './walk'
 import { dims, symbol } from './furniture'
 import { DEFAULT_FLOOR, FLOORS } from './materials'
 
@@ -59,7 +59,10 @@ function planBody(p: Project, sheet = false) {
   const center = planCenter(p)
   const out: string[] = []
   const roomFill = sheet ? " fill-opacity='0.45'" : ''
-  for (const r of p.rooms) out.push(`<polygon points='${pts(r.points)}' fill='${FLOORS[r.floor ?? DEFAULT_FLOOR].plan}'${roomFill}/>`)
+  for (const r of p.rooms) {
+    out.push(`<polygon points='${pts(r.points)}' fill='${FLOORS[r.floor ?? DEFAULT_FLOOR].plan}'${roomFill}/>`)
+    if (sheet) out.push(`<polygon points='${pts(r.points)}' fill='url(#pola-${r.floor ?? DEFAULT_FLOOR})'/>`)
+  }
   for (const f of p.furniture) {
     const { w: fw, d: fd } = dims(f)
     out.push(
@@ -87,10 +90,10 @@ function planBody(p: Project, sheet = false) {
   const nameFont = sheet ? `${MONO} font-weight='600' letter-spacing='0.04'` : SERIF
   for (const r of p.rooms) {
     // Ditulis setelah furnitur dan dinding: nama ruangan selalu di lapisan atas.
-    const [cx, cy] = centroid(r.points)
+    const [cx, cy] = labelPoint(r.points)
     const name = sheet ? r.name.toUpperCase() : r.name
     out.push(`<text x='${cx}' y='${cy - 0.1}' ${nameFont} font-size='${sheet ? 0.24 : 0.3}' fill='${INK}' text-anchor='middle'>${esc(name)}</text>`)
-    out.push(`<text x='${cx}' y='${cy + 0.22}' ${MONO} font-size='0.16' fill='${PENCIL}' text-anchor='middle'>${polygonArea(r.points).toFixed(1)} m²</text>`)
+    out.push(`<text x='${cx}' y='${cy + 0.22}' ${MONO} font-size='0.16' fill='${PENCIL}' text-anchor='middle'>${roomSize(r.points, sheet)}</text>`)
   }
   for (const n of p.notes ?? []) {
     if (!n.b) {
@@ -112,6 +115,35 @@ function planBody(p: Project, sheet = false) {
       )
   }
   return out
+}
+
+// Titik label di dalam ruangan. Titik berat dipakai bila cukup jauh dari tepi; ruangan bentuk L/U yang titik beratnya
+// di luar atau mepet tepi memakai titik grid 0,25 m yang paling jauh dari tepi.
+export function labelPoint(points: Point[]): Point {
+  const edge = (q: Point) => Math.min(...points.map((a, i) => distToSegment(q, { a, b: points[(i + 1) % points.length] })))
+  const c = centroid(points)
+  if (inPolygon(c, points) && edge(c) > 0.9) return c
+  const xs = points.map((q) => q[0])
+  const ys = points.map((q) => q[1])
+  let best: [Point, number] = [c, -1]
+  for (let x = Math.min(...xs) + 0.125; x < Math.max(...xs); x += 0.25)
+    for (let y = Math.min(...ys) + 0.125; y < Math.max(...ys); y += 0.25) {
+      const q: Point = [x, y]
+      const d = inPolygon(q, points) ? edge(q) : -1
+      if (d > best[1]) best = [q, d]
+    }
+  return best[0]
+}
+
+// Luas ruangan; di lembar kerja ruangan persegi ikut ukuran panjang × lebar (seperti "14.0 m² · 4.00 × 3.50").
+function roomSize(points: Point[], sheet: boolean) {
+  const area = `${polygonArea(points).toFixed(1)} m²`
+  if (!sheet || points.length !== 4) return area
+  const xs = points.map((q) => q[0])
+  const ys = points.map((q) => q[1])
+  const w = Math.max(...xs) - Math.min(...xs)
+  const h = Math.max(...ys) - Math.min(...ys)
+  return Math.abs(w * h - polygonArea(points)) < 0.01 ? `${area} · ${w.toFixed(2)} × ${h.toFixed(2)}` : area
 }
 
 function extent(p: Project) {
@@ -180,6 +212,86 @@ export function gridLines(values: number[]) {
   return out.length > 10 ? out.filter((_, i) => i % Math.ceil(out.length / 10) === 0) : out
 }
 
+// Unsur tapak yang hanya ada di lembar gambar (tidak masuk model proyek): as struktur yang ditetapkan,
+// rumput, perkerasan, kolam, batu pijakan, pohon, mobil, kolom, label taman, dan garis batas lahan.
+export type Site = {
+  axes?: { x: number[]; y: number[] }
+  lawns?: Point[][]
+  paving?: Point[][]
+  pools?: Point[][]
+  stones?: Point[]
+  trees?: { at: Point; r: number }[]
+  cars?: { at: Point; rot: number }[]
+  columns?: Point[]
+  labels?: { at: Point; text: string; sub?: string }[]
+  boundary?: Point[]
+}
+
+const LINE = (w: number, extra = '') => `stroke='${PENCIL}' stroke-width='${w}' fill='none'${extra}`
+
+// Pola arsir lantai dan rumput, koordinat meter. Garis tipis dan pudar supaya tidak bersaing dengan dinding.
+const PATTERNS = `<defs>
+<pattern id='pola-keramik' width='0.6' height='0.6' patternUnits='userSpaceOnUse'><path d='M0 0H0.6M0 0V0.6' ${LINE(0.008, " opacity='0.5'")}/></pattern>
+<pattern id='pola-teraso' width='0.8' height='0.8' patternUnits='userSpaceOnUse'><path d='M0 0H0.8M0 0V0.8' ${LINE(0.008, " opacity='0.45'")}/><g fill='${PENCIL}' opacity='0.35'><circle cx='0.2' cy='0.3' r='0.018'/><circle cx='0.55' cy='0.15' r='0.012'/><circle cx='0.6' cy='0.6' r='0.02'/><circle cx='0.3' cy='0.65' r='0.012'/></g></pattern>
+<pattern id='pola-kayu' width='1.2' height='0.3' patternUnits='userSpaceOnUse'><path d='M0 0H1.2M0 0.15H1.2M0.4 0V0.15M1 0.15V0.3' ${LINE(0.007, " opacity='0.45'")}/></pattern>
+<pattern id='pola-beton' width='0.9' height='0.9' patternUnits='userSpaceOnUse'><g fill='${PENCIL}' opacity='0.35'><circle cx='0.1' cy='0.2' r='0.012'/><circle cx='0.5' cy='0.1' r='0.01'/><circle cx='0.7' cy='0.5' r='0.014'/><circle cx='0.3' cy='0.7' r='0.01'/><path d='M0.45 0.45l0.05 -0.07l0.04 0.07z'/></g></pattern>
+<pattern id='pola-rumput' width='0.7' height='0.7' patternUnits='userSpaceOnUse'><path d='M0.1 0.25l0.04 -0.1l0.04 0.1M0.45 0.6l0.04 -0.1l0.04 0.1M0.5 0.15l0.03 -0.08l0.03 0.08' ${LINE(0.01, " opacity='0.5'")}/></pattern>
+</defs>`
+
+// Lapisan bawah tapak (di bawah denah): rumput, perkerasan, kolam, batu pijakan, batas lahan.
+function siteUnder(site: Site) {
+  const out: string[] = []
+  if (site.boundary) out.push(`<polygon points='${pts(site.boundary)}' ${LINE(0.03, " stroke-dasharray='0.6 0.15 0.1 0.15'")}/>`)
+  for (const l of site.lawns ?? []) out.push(`<polygon points='${pts(l)}' fill='#e7e6d4'/><polygon points='${pts(l)}' fill='url(#pola-rumput)'/>`)
+  for (const q of site.paving ?? []) out.push(`<polygon points='${pts(q)}' fill='#ebe5d8' ${LINE(0.015).replace(" fill='none'", '')}/><polygon points='${pts(q)}' fill='url(#pola-beton)'/>`)
+  for (const q of site.pools ?? [])
+    out.push(
+      `<polygon points='${pts(q)}' fill='#d5dedb' stroke='${INK}' stroke-width='0.05'/>` +
+        `<polygon points='${pts(q)}' fill='none' stroke='${PENCIL}' stroke-width='0.012' transform-origin='${pts([centroid(q)]).replace(',', ' ')}' transform='scale(0.9)'/>`,
+    )
+  for (const [x, y] of site.stones ?? []) out.push(`<rect x='${x - 0.3}' y='${y - 0.2}' width='0.6' height='0.4' rx='0.08' fill='#ebe5d8' ${LINE(0.015).replace(" fill='none'", '')}/>`)
+  return out
+}
+
+// Lapisan atas tapak: mobil, kolom, tajuk pohon, label taman.
+function siteOver(site: Site) {
+  const out: string[] = []
+  for (const { at, rot } of site.cars ?? [])
+    out.push(
+      `<g transform='translate(${at[0]} ${at[1]}) rotate(${rot})' ${LINE(0.018)}>` +
+        `<rect x='-0.9' y='-2.2' width='1.8' height='4.4' rx='0.35'/><path d='M-0.75 -0.9Q0 -1.15 0.75 -0.9L0.7 0.9Q0 1.05 -0.7 0.9Z'/><path d='M-0.7 -0.85L-0.85 -1.5M0.7 -0.85L0.85 -1.5M-0.7 0.85L-0.85 1.6M0.7 0.85L0.85 1.6'/></g>`,
+    )
+  for (const [x, y] of site.columns ?? []) out.push(`<rect x='${x - 0.15}' y='${y - 0.15}' width='0.3' height='0.3' fill='${INK}'/>`)
+  for (const { at, r } of site.trees ?? []) {
+    const [x, y] = at
+    // Tajuk bergelombang dari 12 busur, ranting dari batang ke tepi.
+    const n = 12
+    let d = ''
+    for (let i = 0; i <= n; i++) {
+      const t = (i / n) * Math.PI * 2
+      const [px, py] = [x + Math.cos(t) * r, y + Math.sin(t) * r]
+      d += i === 0 ? `M${px.toFixed(3)} ${py.toFixed(3)}` : `A${(r * 0.32).toFixed(3)} ${(r * 0.32).toFixed(3)} 0 0 1 ${px.toFixed(3)} ${py.toFixed(3)}`
+    }
+    const spokes = [0, 1, 2, 3, 4, 5].map((i) => {
+      const t = (i / 6) * Math.PI * 2 + 0.3
+      return `M${x} ${y}L${(x + Math.cos(t) * r * 0.6).toFixed(3)} ${(y + Math.sin(t) * r * 0.6).toFixed(3)}`
+    })
+    out.push(`<path d='${d}' fill='#f3eee3' fill-opacity='0.55' stroke='${PENCIL}' stroke-width='0.02'/><path d='${spokes.join('')}' ${LINE(0.012)}/><circle cx='${x}' cy='${y}' r='0.08' fill='${PENCIL}'/>`)
+  }
+  for (const { at, text, sub } of site.labels ?? []) {
+    out.push(`<text x='${at[0]}' y='${at[1]}' ${MONO} font-weight='600' letter-spacing='0.04' font-size='0.24' fill='${INK}' text-anchor='middle'>${esc(text.toUpperCase())}</text>`)
+    if (sub) out.push(`<text x='${at[0]}' y='${at[1] + 0.3}' ${MONO} font-size='0.16' fill='${PENCIL}' text-anchor='middle'>${esc(sub)}</text>`)
+  }
+  return out
+}
+
+const sitePoints = (site: Site): Point[] => [
+  ...(site.boundary ?? []),
+  ...(site.lawns ?? []).flat(),
+  ...(site.paving ?? []).flat(),
+  ...(site.trees ?? []).flatMap(({ at, r }) => [[at[0] - r, at[1] - r], [at[0] + r, at[1] + r]] as Point[]),
+]
+
 // Kode bukaan seperti di gambar kerja: pintu P1, P2, …, jendela J1, J2, … Bukaan sejenis (jenis, gaya, ukuran) berbagi kode.
 export function openingCodes(openings: Opening[]) {
   const types = new Map<string, string>()
@@ -196,11 +308,18 @@ export function openingCodes(openings: Opening[]) {
 // Lembar kerja blueprint untuk halaman depan. Di keempat sisi: rantai ukuran bukaan (dinding luar), rantai ukuran antar as,
 // ukuran total, dan gelembung as (A, B, C / 1, 2, 3). Di dalam: kode pintu/jendela dan tanda potongan A dan B.
 // Tanpa latar, supaya menyatu dengan kertas halaman. Ukuran responsif (tanpa width/height fisik).
-export function blueprintSvg(p: Project) {
-  const e = extent(p)
-  if (!e) return null
-  const xs = gridLines(p.walls.filter((w) => Math.abs(w.a[0] - w.b[0]) < 0.01).map((w) => w.a[0]))
-  const ys = gridLines(p.walls.filter((w) => Math.abs(w.a[1] - w.b[1]) < 0.01).map((w) => w.a[1]))
+export function blueprintSvg(p: Project, site: Site = {}) {
+  const base = extent(p)
+  if (!base) return null
+  const sp = sitePoints(site)
+  const e = {
+    x0: Math.min(base.x0, ...sp.map((q) => q[0])),
+    y0: Math.min(base.y0, ...sp.map((q) => q[1])),
+    x1: Math.max(base.x1, ...sp.map((q) => q[0])),
+    y1: Math.max(base.y1, ...sp.map((q) => q[1])),
+  }
+  const xs = site.axes?.x ?? gridLines(p.walls.filter((w) => Math.abs(w.a[0] - w.b[0]) < 0.01).map((w) => w.a[0]))
+  const ys = site.axes?.y ?? gridLines(p.walls.filter((w) => Math.abs(w.a[1] - w.b[1]) < 0.01).map((w) => w.a[1]))
   // Jarak tiap baris dari tepi denah ke luar: rantai bukaan, rantai as, total, gelembung as.
   const ROW = { open: 0.7, axis: 1.35, total: 2.0, bubble: 2.75 }
   const m = 3.3
@@ -208,7 +327,7 @@ export function blueprintSvg(p: Project) {
   const y0 = e.y0 - m
   const w = e.x1 - e.x0 + 2 * m
   const h = e.y1 - e.y0 + 2 * m
-  const out: string[] = []
+  const out: string[] = [PATTERNS, ...siteUnder(site)]
   const thin = `stroke='${PENCIL}' stroke-width='0.02'`
   const axis = `${thin} stroke-dasharray='0.5 0.12 0.06 0.12' opacity='0.55'`
   const fmt = (v: number) => v.toFixed(2)
@@ -297,7 +416,7 @@ export function blueprintSvg(p: Project) {
   if (cutY !== null) cut('A', true, cutY)
   if (cutX !== null) cut('B', false, cutX)
 
-  out.push(...planBody(p, true))
+  out.push(...planBody(p, true), ...siteOver(site))
 
   // Kode pintu/jendela: di dinding luar selalu di sisi luar (walau ada teras), di dalam di sisi tanpa ruangan bila ada.
   const codes = openingCodes(p.openings)

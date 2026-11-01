@@ -34,7 +34,7 @@ export function blockers(p: Project): Segment[] {
   return out
 }
 
-function distToSegment(p: Point, s: Segment) {
+export function distToSegment(p: Point, s: Pick<Segment, 'a' | 'b'>) {
   const dx = s.b[0] - s.a[0]
   const dy = s.b[1] - s.a[1]
   const len2 = dx * dx + dy * dy

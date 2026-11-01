@@ -4,7 +4,7 @@ import { useMemo } from 'react'
 import Link from 'next/link'
 import { addProject, readProject, type ProjectMeta } from '@/lib/store'
 import { useRouter } from 'next/navigation'
-import { SAMPLE, SAMPLE_NAME } from '@/lib/sample'
+import { SAMPLE, SAMPLE_NAME, SAMPLE_SITE } from '@/lib/sample'
 import { blueprintSvg } from '@/lib/drawing'
 import { polygonArea } from '@/lib/project'
 import { AccountButton } from '@/components/editor/AccountDialog'
@@ -107,8 +107,8 @@ function TitleBlock() {
 
 function Sheet() {
   const router = useRouter()
-  const svg = useMemo(() => blueprintSvg(SAMPLE), [])
-  const inside = SAMPLE.rooms.filter((r) => r.name !== 'Teras')
+  const svg = useMemo(() => blueprintSvg(SAMPLE, SAMPLE_SITE), [])
+  const inside = SAMPLE.rooms.filter((r) => r.name !== 'Teras' && r.name !== 'Carport')
   const area = inside.reduce((s, r) => s + polygonArea(r.points), 0)
   // Contoh dibuka sebagai proyek baru milik pengguna; lembar di halaman depan tidak ikut berubah.
   const open = () => {
