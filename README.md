@@ -17,13 +17,13 @@
   <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-5-2a2420?logo=typescript&logoColor=white">
   <img alt="three.js" src="https://img.shields.io/badge/three.js-0.187-2a2420?logo=threedotjs&logoColor=white">
   <img alt="Supabase" src="https://img.shields.io/badge/Supabase-opsional-2a2420?logo=supabase&logoColor=white">
-  <img alt="Vitest" src="https://img.shields.io/badge/tes-104%20lolos-a8401a?logo=vitest&logoColor=white">
+  <img alt="Vitest" src="https://img.shields.io/badge/tes-107%20lolos-a8401a?logo=vitest&logoColor=white">
   <img alt="Lisensi MIT" src="https://img.shields.io/badge/lisensi-MIT-2a2420">
 </p>
 
 ---
 
-![Halaman depan Denahin: lembar gambar kerja denah Rumah Taman Tengah](docs/dashboard.png)
+![Halaman depan Denahin: lembar gambar kerja denah Rumah Tropis Dua Lantai](docs/dashboard.png)
 
 ## Daftar isi
 
@@ -42,22 +42,23 @@
 
 | Editor denah 2D | Bangunan 3D |
 |---|---|
-| ![Editor denah dengan alat dinding, pintu, jendela, ruangan, dan panel properti](docs/editor.png) | ![Tampilan 3D dari luar dengan bayangan matahari pukul 09.00](docs/3d.jpg) |
+| ![Editor denah dengan alat dinding, pintu, jendela, ruangan, dan panel properti](docs/editor.png) | ![Rumah dua lantai dalam 3D: atap pelana menghadap jalan, balkon kaca, bata ekspos](docs/3d.jpg) |
 | **Room tour** | **Presentasi untuk klien** |
-| ![Berjalan di ruang keluarga, menghadap taman tengah lewat dinding kaca](docs/room-tour.jpg) | ![Halaman presentasi scroll dengan denah dan nama proyek](docs/presentasi.png) |
+| ![Berjalan di ruang keluarga: sofa, lantai parket, jendela barat](docs/room-tour.jpg) | ![Halaman presentasi scroll dengan denah dan nama proyek](docs/presentasi.png) |
 
 ### Lembar gambar kerja
 
 Gambar di halaman depan dibuat dengan kode dari data denah. Isinya: as struktur di keempat sisi, tiga lapis rantai ukuran,
-kode pintu dan jendela (P1, J1), tanda potongan, arsir lantai per material, dan tapak (taman, kolam, pohon, carport).
+kode pintu dan jendela (P1, J1), tanda potongan, arsir lantai per material, void, dan tapak (taman, pohon, carport, pintu pagar).
+Lantai 1 dan Lantai 2 bisa dipilih di atas gambar.
 
-<p align="center">
-  <img src="docs/denah-contoh.svg" alt="Denah Rumah Taman Tengah, 24 × 19 m, 20 ruang" width="900">
-</p>
+| Lantai 1 | Lantai 2 |
+|---|---|
+| ![Denah Lantai 1 Rumah Tropis Dua Lantai](docs/denah-lantai-1.svg) | ![Denah Lantai 2 Rumah Tropis Dua Lantai](docs/denah-lantai-2.svg) |
 
-Rumah contohnya adalah rumah tropis satu lantai sekitar 357 m² dengan taman tengah. Pembagian zonanya mengikuti kebiasaan rumah di Indonesia:
-privat di utara, servis di barat (cuci-jemur, kamar ART, dapur kotor), publik di selatan (foyer, ruang tamu, mushola).
-Ukuran ruang mengacu patokan umum rumah tinggal, misalnya kamar utama minimal 3,5 × 4 m dan KM dengan bathtub minimal 2,5 × 3 m.
+Rumah contohnya adalah rumah tropis dua lantai di lahan 15 × 24,5 m, dengan luas ruang dalam 342 m², void di atas ruang keluarga, dan balkon depan.
+Lantai 1 berisi zona publik dan servis, Lantai 2 zona privat. Program ruang, KDB/KLB, tangga, struktur, daftar pintu dan jendela,
+serta catatan risikonya ada di [docs/rumah-contoh.md](docs/rumah-contoh.md).
 Tombol "Buka contoh ini di editor" menyalinnya jadi proyek Anda sendiri.
 
 ## Fitur
@@ -101,7 +102,7 @@ Tombol "Buka contoh ini di editor" menyalinnya jadi proyek Anda sendiri.
 | 3D | [three.js](https://threejs.org) lewat [React Three Fiber](https://r3f.docs.pmnd.rs) dan drei | Geometri dibuat dari data denah, tekstur digambar dengan kode |
 | Gambar 2D | SVG yang dibangkitkan sendiri | Layar, PNG, PDF, dan lembar kerja memakai modul geometri yang sama |
 | Akun dan cloud | [Supabase](https://supabase.com) (Auth + Postgres dengan RLS) | Opsional; hanya kunci publishable di browser |
-| Tes | [Vitest](https://vitest.dev), Testing Library, jsdom | 104 tes untuk geometri, atap, tangga, ekspor, dan editor |
+| Tes | [Vitest](https://vitest.dev), Testing Library, jsdom | 107 tes untuk geometri, atap, tangga, ekspor, dan editor |
 | Huruf | IBM Plex Sans/Mono, Stardos Stencil, Big Shoulders Stencil | Huruf teknik untuk angka, stensil untuk lettering gambar kerja |
 
 ## Cara kerja
@@ -183,7 +184,7 @@ src/
     exporters.ts       PNG, PDF, GLB, cadangan
     quantities.ts      volume material
     share.ts           tautan bagikan terkompresi
-    sample.ts          rumah contoh halaman depan
+    sample.ts          rumah contoh halaman depan (rencana: docs/rumah-contoh.md)
 docs/                  logo dan gambar README
 supabase/              skema database
 DESIGN.md              arah desain visual

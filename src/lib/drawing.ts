@@ -225,6 +225,8 @@ export type Site = {
   columns?: Point[]
   labels?: { at: Point; text: string; sub?: string }[]
   boundary?: Point[]
+  gates?: { a: Point; b: Point }[] // pintu pagar di garis batas lahan
+  voids?: Point[][] // lubang lantai (double height), digambar silang
 }
 
 const LINE = (w: number, extra = '') => `stroke='${PENCIL}' stroke-width='${w}' fill='none'${extra}`
@@ -261,6 +263,15 @@ function siteOver(site: Site) {
       `<g transform='translate(${at[0]} ${at[1]}) rotate(${rot})' ${LINE(0.018)}>` +
         `<rect x='-0.9' y='-2.2' width='1.8' height='4.4' rx='0.35'/><path d='M-0.75 -0.9Q0 -1.15 0.75 -0.9L0.7 0.9Q0 1.05 -0.7 0.9Z'/><path d='M-0.7 -0.85L-0.85 -1.5M0.7 -0.85L0.85 -1.5M-0.7 0.85L-0.85 1.6M0.7 0.85L0.85 1.6'/></g>`,
     )
+  for (const { a, b } of site.gates ?? [])
+    out.push(
+      `<line x1='${a[0]}' y1='${a[1]}' x2='${b[0]}' y2='${b[1]}' stroke='${INK}' stroke-width='0.05'/>` +
+        [a, b].map(([x, y]) => `<rect x='${x - 0.12}' y='${y - 0.12}' width='0.24' height='0.24' fill='${INK}'/>`).join(''),
+    )
+  for (const v of site.voids ?? []) {
+    const [x0, y0, x1, y1] = [Math.min(...v.map((q) => q[0])), Math.min(...v.map((q) => q[1])), Math.max(...v.map((q) => q[0])), Math.max(...v.map((q) => q[1]))]
+    out.push(`<path d='M${x0} ${y0}L${x1} ${y1}M${x1} ${y0}L${x0} ${y1}' ${LINE(0.015, " stroke-dasharray='0.2 0.1'")}/>`)
+  }
   for (const [x, y] of site.columns ?? []) out.push(`<rect x='${x - 0.15}' y='${y - 0.15}' width='0.3' height='0.3' fill='${INK}'/>`)
   for (const { at, r } of site.trees ?? []) {
     const [x, y] = at
@@ -370,14 +381,16 @@ export function blueprintSvg(p: Project, site: Site = {}) {
     return sorted.filter((v, i) => i === 0 || v - sorted[i - 1] >= 0.05)
   }
   // Rantai bukaan di satu sisi: ujung dinding luar, as, dan tepi tiap pintu/jendela di dinding luar sisi itu.
-  const wx = p.walls.flatMap((q) => [q.a[0], q.b[0]])
-  const wy = p.walls.flatMap((q) => [q.a[1], q.b[1]])
+  // Tepi bangunan dari dinding setinggi ruangan; pagar dan dinding rendah tidak dihitung.
+  const body = p.walls.filter((q) => q.height >= 2)
+  const wx = body.flatMap((q) => [q.a[0], q.b[0]])
+  const wy = body.flatMap((q) => [q.a[1], q.b[1]])
   const wb = { x0: Math.min(...wx), x1: Math.max(...wx), y0: Math.min(...wy), y1: Math.max(...wy) }
   const openChain = (horiz: boolean, edge: number) => {
     const [r0, r1] = horiz ? [wb.x0, wb.x1] : [wb.y0, wb.y1]
     const vals = [r0, r1, ...(horiz ? xs : ys).filter((v) => v > r0 && v < r1)]
     const k = horiz ? 1 : 0
-    for (const q of p.walls) {
+    for (const q of body) {
       if (Math.abs(q.a[k] - edge) > 0.01 || Math.abs(q.b[k] - edge) > 0.01) continue
       for (const o of p.openings.filter((o) => o.wallId === q.id))
         for (const t of [o.at - o.width / 2, o.at + o.width / 2]) vals.push(pointAlong(q, t)[1 - k])

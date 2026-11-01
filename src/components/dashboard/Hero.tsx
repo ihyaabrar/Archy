@@ -1,12 +1,12 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { addProject, readProject, type ProjectMeta } from '@/lib/store'
 import { useRouter } from 'next/navigation'
-import { SAMPLE, SAMPLE_NAME, SAMPLE_SITE } from '@/lib/sample'
+import { LEVELS, OUTDOOR, SAMPLE, SAMPLE_NAME, SAMPLE_SITE } from '@/lib/sample'
 import { blueprintSvg } from '@/lib/drawing'
-import { polygonArea } from '@/lib/project'
+import { onLevel, polygonArea } from '@/lib/project'
 import { AccountButton } from '@/components/editor/AccountDialog'
 
 // Halaman depan bergaya lembar gambar kerja: judul besar di kiri, gambar denah rumah contoh di kanan,
@@ -79,6 +79,10 @@ export function Hero({ projects, onCreate }: { projects: ProjectMeta[]; onCreate
   )
 }
 
+// Kaca pagar (balkon, void) ada di dinding rendah dan tidak dihitung sebagai jendela.
+const count = (kind: 'door' | 'window') =>
+  SAMPLE.openings.filter((o) => o.kind === kind && (SAMPLE.walls.find((w) => w.id === o.wallId)?.height ?? 0) >= 2).length
+
 // Kotak kepala gambar seperti pojok lembar kerja, untuk rumah contoh.
 function TitleBlock() {
   return (
@@ -89,7 +93,7 @@ function TitleBlock() {
       </div>
       <div>
         <dt>Gambar</dt>
-        <dd>Denah Lantai 1</dd>
+        <dd>Denah Lt. 1 dan 2</dd>
       </div>
       <div>
         <dt>Skala</dt>
@@ -98,7 +102,7 @@ function TitleBlock() {
       <div>
         <dt>Pintu / jendela</dt>
         <dd>
-          {SAMPLE.openings.filter((o) => o.kind === 'door').length} / {SAMPLE.openings.filter((o) => o.kind === 'window').length}
+          {count('door')} / {count('window')}
         </dd>
       </div>
     </dl>
@@ -107,8 +111,9 @@ function TitleBlock() {
 
 function Sheet() {
   const router = useRouter()
-  const svg = useMemo(() => blueprintSvg(SAMPLE, SAMPLE_SITE), [])
-  const inside = SAMPLE.rooms.filter((r) => r.name !== 'Teras' && r.name !== 'Carport')
+  const [level, setLevel] = useState(LEVELS[0])
+  const svg = useMemo(() => blueprintSvg(onLevel(SAMPLE, level.id), SAMPLE_SITE[level.id]), [level])
+  const inside = SAMPLE.rooms.filter((r) => r.level === level.id && !OUTDOOR.includes(r.id))
   const area = inside.reduce((s, r) => s + polygonArea(r.points), 0)
   // Contoh dibuka sebagai proyek baru milik pengguna; lembar di halaman depan tidak ikut berubah.
   const open = () => {
@@ -119,13 +124,20 @@ function Sheet() {
     <>
       <div className="sheet-head">
         <div>
-          <p className="sheet-title">Denah Lantai 1</p>
+          <p className="sheet-title">Denah {level.name}</p>
           <p className="sheet-label sheet-meta">
             {SAMPLE_NAME} <span aria-hidden>·</span> {area.toFixed(1)} m² <span aria-hidden>·</span> {inside.length} ruangan <span aria-hidden>·</span> 1:100
           </p>
           <ScaleBar />
         </div>
         <NorthArrow />
+      </div>
+      <div className="sheet-tabs" role="group" aria-label="Pilih lantai">
+        {LEVELS.map((l) => (
+          <button key={l.id} className="sheet-label sheet-tab" aria-pressed={l.id === level.id} onClick={() => setLevel(l)}>
+            {l.name}
+          </button>
+        ))}
       </div>
       {/* Gambar dibuat aplikasi dari data contoh tetap, bukan HTML dari luar. */}
       {svg && <div className="sheet-plan" dangerouslySetInnerHTML={{ __html: svg }} />}
