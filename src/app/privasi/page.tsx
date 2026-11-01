@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { LegalPage } from "@/components/LegalPage";
+import { Contact, LegalPage } from "@/components/LegalPage";
 
 export const metadata: Metadata = { title: "Kebijakan Privasi" };
 
@@ -39,11 +39,11 @@ export default function Page() {
       <h2>Menghapus data</h2>
       <p>
         Proyek di browser bisa Anda hapus sendiri dari daftar proyek. Proyek di cloud bisa dihapus dari menu Proyek di editor. Untuk menghapus akun beserta semua
-        datanya, hubungi [KONTAK].
+        datanya, hubungi <Contact />.
       </p>
 
       <h2>Perubahan dan kontak</h2>
-      <p>Kebijakan ini dapat berubah mengikuti perkembangan aplikasi. Pertanyaan tentang privasi dapat dikirim ke [KONTAK].</p>
+      <p>Kebijakan ini dapat berubah mengikuti perkembangan aplikasi. Pertanyaan tentang privasi dapat dikirim ke <Contact />.</p>
     </LegalPage>
   );
 }

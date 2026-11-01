@@ -11,7 +11,7 @@ export function LegalPage({ title, children }: { title: string; children: ReactN
       <article className="legal-body">
         <h1 className="stencil">{title}</h1>
         <p className="legal-draft" role="note">
-          Draf: belum ditinjau ahli hukum. Bagian bertanda [KONTAK] harus diisi pemilik layanan sebelum Denahin dibuka untuk umum.
+          Draf: belum ditinjau ahli hukum.
         </p>
         {children}
         <nav className="legal-nav" aria-label="Halaman lain">
@@ -22,4 +22,11 @@ export function LegalPage({ title, children }: { title: string; children: ReactN
       </article>
     </main>
   );
+}
+
+// Alamat kontak pemilik layanan untuk pertanyaan privasi, penghapusan akun, dan syarat.
+export const CONTACT_EMAIL = 'ihyakpati1144@gmail.com'
+
+export function Contact() {
+  return <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>
 }

@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { LegalPage } from "@/components/LegalPage";
+import { Contact, LegalPage } from "@/components/LegalPage";
 
 export const metadata: Metadata = { title: "Syarat Layanan" };
 
@@ -28,7 +28,7 @@ export default function Page() {
       </p>
 
       <h2>Perubahan dan kontak</h2>
-      <p>Syarat ini dapat berubah. Pertanyaan dapat dikirim ke [KONTAK].</p>
+      <p>Syarat ini dapat berubah. Pertanyaan dapat dikirim ke <Contact />.</p>
     </LegalPage>
   );
 }
