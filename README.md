@@ -14,6 +14,7 @@
   <img alt="three.js" src="https://img.shields.io/badge/three.js-0.187-2a2420?logo=threedotjs&logoColor=white">
   <img alt="Supabase" src="https://img.shields.io/badge/Supabase-opsional-2a2420?logo=supabase&logoColor=white">
   <img alt="Vitest" src="https://img.shields.io/badge/tes-104%20lolos-a8401a?logo=vitest&logoColor=white">
+  <img alt="Lisensi MIT" src="https://img.shields.io/badge/lisensi-MIT-2a2420">
 </p>
 
 ---
@@ -31,6 +32,7 @@
 - [Struktur proyek](#struktur-proyek)
 - [Pengujian](#pengujian)
 - [Privasi](#privasi)
+- [Lisensi](#lisensi)
 
 ## Tampilan
 
@@ -200,3 +202,7 @@ ekspor, volume material, tautan bagikan, urutan tur, laporan kesalahan, dan alur
 - Laporan kesalahan hanya berisi pesan teknis dan path halaman tanpa query dan hash, dibatasi 5 laporan per halaman.
 
 Lihat juga halaman `/privasi` di aplikasi.
+
+## Lisensi
+
+[MIT](LICENSE). Bebas dipakai, diubah, dan dibagikan dengan mencantumkan pemegang hak cipta.
