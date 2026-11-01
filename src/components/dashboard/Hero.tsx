@@ -2,14 +2,16 @@
 
 import { useMemo } from 'react'
 import Link from 'next/link'
-import { readProject, type ProjectMeta } from '@/lib/store'
+import { addProject, readProject, type ProjectMeta } from '@/lib/store'
+import { useRouter } from 'next/navigation'
+import { SAMPLE, SAMPLE_NAME } from '@/lib/sample'
 import { blueprintSvg } from '@/lib/drawing'
-import { levelsOf, onLevel, polygonArea, type Project } from '@/lib/project'
+import { polygonArea } from '@/lib/project'
 import { AccountButton } from '@/components/editor/AccountDialog'
 
-// Halaman depan bergaya lembar gambar kerja: judul besar di kiri, gambar denah proyek terakhir di kanan,
+// Halaman depan bergaya lembar gambar kerja: judul besar di kiri, gambar denah rumah contoh di kanan,
 // lengkap dengan gelembung as, rantai ukuran, kepala gambar, batang skala, dan panah utara.
-// Semua angka berasal dari proyek pengguna; tanpa proyek berdenah, sisi kanan menampilkan lembar kosong.
+// Gambar di kanan selalu rumah contoh yang sama (lib/sample.ts), bukan proyek terakhir, supaya halaman depan tetap.
 // Proyek terbaru yang sudah punya dinding.
 function findLatest(projects: ProjectMeta[]) {
   for (const m of [...projects].sort((a, b) => b.updatedAt - a.updatedAt)) {
@@ -62,10 +64,12 @@ export function Hero({ projects, onCreate }: { projects: ProjectMeta[]; onCreate
               Semua proyek
             </a>
           </div>
-          {latest && <TitleBlock meta={latest.meta} project={latest.project} />}
+          <TitleBlock />
         </div>
 
-        <div className="hero-sheet">{latest ? <Sheet meta={latest.meta} project={latest.project} /> : <EmptySheet onCreate={onCreate} />}</div>
+        <div className="hero-sheet">
+          <Sheet />
+        </div>
       </div>
 
       <a className="sheet-label hero-scroll" href="#proyek">
@@ -75,63 +79,60 @@ export function Hero({ projects, onCreate }: { projects: ProjectMeta[]; onCreate
   )
 }
 
-// Kotak kepala gambar seperti pojok lembar kerja: proyek, gambar, skala, jumlah lantai.
-function TitleBlock({ meta, project }: { meta: ProjectMeta; project: Project }) {
-  const levels = levelsOf(project)
+// Kotak kepala gambar seperti pojok lembar kerja, untuk rumah contoh.
+function TitleBlock() {
   return (
     <dl className="title-block" aria-label="Kepala gambar">
       <div>
         <dt>Proyek</dt>
-        <dd>{meta.name}</dd>
+        <dd>{SAMPLE_NAME}</dd>
       </div>
       <div>
         <dt>Gambar</dt>
-        <dd>Denah {levels[0].name}</dd>
+        <dd>Denah Lantai 1</dd>
       </div>
       <div>
         <dt>Skala</dt>
         <dd>1 : 100</dd>
       </div>
       <div>
-        <dt>Lantai</dt>
-        <dd>{levels.length}</dd>
+        <dt>Pintu / jendela</dt>
+        <dd>
+          {SAMPLE.openings.filter((o) => o.kind === 'door').length} / {SAMPLE.openings.filter((o) => o.kind === 'window').length}
+        </dd>
       </div>
     </dl>
   )
 }
 
-function Sheet({ meta, project }: { meta: ProjectMeta; project: Project }) {
-  const first = levelsOf(project)[0]
-  const part = useMemo(() => onLevel(project, first.id), [project, first.id])
-  const svg = useMemo(() => blueprintSvg(part), [part])
-  const area = part.rooms.reduce((s, r) => s + polygonArea(r.points), 0)
+function Sheet() {
+  const router = useRouter()
+  const svg = useMemo(() => blueprintSvg(SAMPLE), [])
+  const inside = SAMPLE.rooms.filter((r) => r.name !== 'Teras')
+  const area = inside.reduce((s, r) => s + polygonArea(r.points), 0)
+  // Contoh dibuka sebagai proyek baru milik pengguna; lembar di halaman depan tidak ikut berubah.
+  const open = () => {
+    const id = addProject(structuredClone(SAMPLE), SAMPLE_NAME)
+    if (id) router.push(`/proyek/${id}`)
+  }
   return (
     <>
       <div className="sheet-head">
         <div>
-          <p className="sheet-title">Denah {first.name}</p>
+          <p className="sheet-title">Denah Lantai 1</p>
           <p className="sheet-label sheet-meta">
-            {meta.name} <span aria-hidden>·</span> {area.toFixed(1)} m² <span aria-hidden>·</span> {part.rooms.length} ruangan <span aria-hidden>·</span> 1:100
+            {SAMPLE_NAME} <span aria-hidden>·</span> {area.toFixed(1)} m² <span aria-hidden>·</span> {inside.length} ruangan <span aria-hidden>·</span> 1:100
           </p>
           <ScaleBar />
         </div>
         <NorthArrow />
       </div>
-      {/* Gambar dibuat aplikasi dari data proyek (nama ruangan di-escape), bukan HTML dari luar. */}
-      {svg && <Link href={`/proyek/${meta.id}`} className="sheet-plan" aria-label={`Buka ${meta.name}`} dangerouslySetInnerHTML={{ __html: svg }} />}
-    </>
-  )
-}
-
-function EmptySheet({ onCreate }: { onCreate: () => void }) {
-  return (
-    <div className="sheet-empty">
-      <p className="sheet-title">Lembar masih kosong</p>
-      <p className="muted">Denah pertama Anda akan tampil di sini sebagai lembar gambar, lengkap dengan as dan ukurannya.</p>
-      <button className="pill" onClick={onCreate}>
-        Mulai menggambar
+      {/* Gambar dibuat aplikasi dari data contoh tetap, bukan HTML dari luar. */}
+      {svg && <div className="sheet-plan" dangerouslySetInnerHTML={{ __html: svg }} />}
+      <button className="sheet-label hero-sample" onClick={open}>
+        Buka contoh ini di editor
       </button>
-    </div>
+    </>
   )
 }
 

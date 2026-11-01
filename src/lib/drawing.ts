@@ -180,37 +180,55 @@ export function gridLines(values: number[]) {
   return out.length > 10 ? out.filter((_, i) => i % Math.ceil(out.length / 10) === 0) : out
 }
 
-// Lembar kerja blueprint untuk halaman depan: denah + gelembung as (A, B, C / 1, 2, 3) dan rantai ukuran antar as.
+// Kode bukaan seperti di gambar kerja: pintu P1, P2, …, jendela J1, J2, … Bukaan sejenis (jenis, gaya, ukuran) berbagi kode.
+export function openingCodes(openings: Opening[]) {
+  const types = new Map<string, string>()
+  const count = { door: 0, window: 0 }
+  return new Map(
+    openings.map((o) => {
+      const key = `${o.kind}:${o.style ?? ''}:${o.width}:${o.height}:${o.sill}`
+      if (!types.has(key)) types.set(key, `${o.kind === 'door' ? 'P' : 'J'}${++count[o.kind]}`)
+      return [o.id, types.get(key)!]
+    }),
+  )
+}
+
+// Lembar kerja blueprint untuk halaman depan. Di keempat sisi: rantai ukuran bukaan (dinding luar), rantai ukuran antar as,
+// ukuran total, dan gelembung as (A, B, C / 1, 2, 3). Di dalam: kode pintu/jendela dan tanda potongan A dan B.
 // Tanpa latar, supaya menyatu dengan kertas halaman. Ukuran responsif (tanpa width/height fisik).
 export function blueprintSvg(p: Project) {
   const e = extent(p)
   if (!e) return null
   const xs = gridLines(p.walls.filter((w) => Math.abs(w.a[0] - w.b[0]) < 0.01).map((w) => w.a[0]))
   const ys = gridLines(p.walls.filter((w) => Math.abs(w.a[1] - w.b[1]) < 0.01).map((w) => w.a[1]))
-  const m = 2.8 // ruang di kiri dan atas untuk gelembung as dan rantai ukuran
+  // Jarak tiap baris dari tepi denah ke luar: rantai bukaan, rantai as, total, gelembung as.
+  const ROW = { open: 0.7, axis: 1.35, total: 2.0, bubble: 2.75 }
+  const m = 3.3
   const x0 = e.x0 - m
   const y0 = e.y0 - m
-  const w = e.x1 - e.x0 + m + 1
-  const h = e.y1 - e.y0 + m + 1
+  const w = e.x1 - e.x0 + 2 * m
+  const h = e.y1 - e.y0 + 2 * m
   const out: string[] = []
   const thin = `stroke='${PENCIL}' stroke-width='0.02'`
   const axis = `${thin} stroke-dasharray='0.5 0.12 0.06 0.12' opacity='0.55'`
   const fmt = (v: number) => v.toFixed(2)
+  const label = (x: number, y: number, text: string, size = 0.24) =>
+    `<text x='${x}' y='${y + size * 0.35}' ${MONO} font-size='${size}' fill='${INK}' text-anchor='middle'>${text}</text>`
+  const bubble = (x: number, y: number, text: string) => `<circle cx='${x}' cy='${y}' r='0.3' fill='#f3eee3' ${thin}/>` + label(x, y, text)
 
   xs.forEach((x, i) => {
-    out.push(`<line x1='${x}' y1='${e.y0 - 2.1}' x2='${x}' y2='${e.y1 + 0.6}' ${axis}/>`)
-    out.push(`<circle cx='${x}' cy='${e.y0 - 2.4}' r='0.3' fill='#f3eee3' ${thin}/>`)
-    out.push(`<text x='${x}' y='${e.y0 - 2.33}' ${MONO} font-size='0.24' fill='${INK}' text-anchor='middle' dominant-baseline='middle'>${String.fromCharCode(65 + i)}</text>`)
+    out.push(`<line x1='${x}' y1='${e.y0 - ROW.bubble + 0.3}' x2='${x}' y2='${e.y1 + ROW.bubble - 0.3}' ${axis}/>`)
+    for (const y of [e.y0 - ROW.bubble, e.y1 + ROW.bubble]) out.push(bubble(x, y, String.fromCharCode(65 + i)))
   })
   ys.forEach((y, i) => {
-    out.push(`<line x1='${e.x0 - 2.1}' y1='${y}' x2='${e.x1 + 0.6}' y2='${y}' ${axis}/>`)
-    out.push(`<circle cx='${e.x0 - 2.4}' cy='${y}' r='0.3' fill='#f3eee3' ${thin}/>`)
-    out.push(`<text x='${e.x0 - 2.4}' y='${y + 0.07}' ${MONO} font-size='0.24' fill='${INK}' text-anchor='middle' dominant-baseline='middle'>${i + 1}</text>`)
+    out.push(`<line x1='${e.x0 - ROW.bubble + 0.3}' y1='${y}' x2='${e.x1 + ROW.bubble - 0.3}' y2='${y}' ${axis}/>`)
+    for (const x of [e.x0 - ROW.bubble, e.x1 + ROW.bubble]) out.push(bubble(x, y, String(i + 1)))
   })
-  // Rantai ukuran: garis dengan coret di tiap as, jarak antar as, dan total di atasnya.
-  const chain = (vals: number[], horiz: boolean) => {
+
+  // Satu rantai ukuran di sisi `side` (-1 atas/kiri, +1 bawah/kanan): garis, coretan di tiap titik, angka di sisi luar.
+  const chain = (vals: number[], horiz: boolean, side: -1 | 1, row: number, total = false) => {
     if (vals.length < 2) return
-    const c = horiz ? e.y0 - 1.2 : e.x0 - 1.2
+    const c = (horiz ? (side < 0 ? e.y0 : e.y1) : side < 0 ? e.x0 : e.x1) + side * row
     const at = (v: number, off = 0): [number, number] => (horiz ? [v, c + off] : [c + off, v])
     const rot = (x: number, y: number) => (horiz ? '' : ` transform='rotate(-90 ${x} ${y})'`)
     const [a, b] = [at(vals[0]), at(vals[vals.length - 1])]
@@ -219,15 +237,85 @@ export function blueprintSvg(p: Project) {
       const [tx, ty] = at(v)
       out.push(`<line x1='${tx - 0.1}' y1='${ty + 0.1}' x2='${tx + 0.1}' y2='${ty - 0.1}' stroke='${INK}' stroke-width='0.03'/>`)
     })
-    for (let i = 0; i + 1 < vals.length; i++) {
-      const [tx, ty] = at((vals[i] + vals[i + 1]) / 2, -0.18)
-      out.push(`<text x='${tx}' y='${ty}' ${MONO} font-size='0.18' fill='${PENCIL}' text-anchor='middle'${rot(tx, ty)}>${fmt(vals[i + 1] - vals[i])}</text>`)
+    // Angka di luar garis. Teks tegak diputar -90°, jadi di sisi kanan garis butuh geser sebesar tinggi huruf.
+    const off = side < 0 ? -0.12 : 0.27
+    const segs = total ? [[vals[0], vals[vals.length - 1]]] : vals.slice(1).map((v, i) => [vals[i], v])
+    for (const [p0, p1] of segs) {
+      if (p1 - p0 < 0.3) continue // terlalu sempit untuk angka
+      const [tx, ty] = at((p0 + p1) / 2, off)
+      out.push(`<text x='${tx}' y='${ty}' ${MONO} font-size='${total ? 0.2 : 0.17}' fill='${total ? INK : PENCIL}' text-anchor='middle'${rot(tx, ty)}>${fmt(p1 - p0)}</text>`)
     }
-    const [tx, ty] = at((vals[0] + vals[vals.length - 1]) / 2, -0.62)
-    out.push(`<text x='${tx}' y='${ty}' ${MONO} font-size='0.2' fill='${INK}' text-anchor='middle'${rot(tx, ty)}>${fmt(vals[vals.length - 1] - vals[0])}</text>`)
   }
-  chain(xs, true)
-  chain(ys, false)
+  const uniq = (vals: number[]) => {
+    const sorted = vals.map((v) => Math.round(v * 100) / 100).sort((a, b) => a - b)
+    return sorted.filter((v, i) => i === 0 || v - sorted[i - 1] >= 0.05)
+  }
+  // Rantai bukaan di satu sisi: ujung dinding luar, as, dan tepi tiap pintu/jendela di dinding luar sisi itu.
+  const wx = p.walls.flatMap((q) => [q.a[0], q.b[0]])
+  const wy = p.walls.flatMap((q) => [q.a[1], q.b[1]])
+  const wb = { x0: Math.min(...wx), x1: Math.max(...wx), y0: Math.min(...wy), y1: Math.max(...wy) }
+  const openChain = (horiz: boolean, edge: number) => {
+    const [r0, r1] = horiz ? [wb.x0, wb.x1] : [wb.y0, wb.y1]
+    const vals = [r0, r1, ...(horiz ? xs : ys).filter((v) => v > r0 && v < r1)]
+    const k = horiz ? 1 : 0
+    for (const q of p.walls) {
+      if (Math.abs(q.a[k] - edge) > 0.01 || Math.abs(q.b[k] - edge) > 0.01) continue
+      for (const o of p.openings.filter((o) => o.wallId === q.id))
+        for (const t of [o.at - o.width / 2, o.at + o.width / 2]) vals.push(pointAlong(q, t)[1 - k])
+    }
+    return uniq(vals)
+  }
+  for (const side of [-1, 1] as const) {
+    chain(openChain(true, side < 0 ? wb.y0 : wb.y1), true, side, ROW.open)
+    chain(openChain(false, side < 0 ? wb.x0 : wb.x1), false, side, ROW.open)
+    chain(xs, true, side, ROW.axis)
+    chain(ys, false, side, ROW.axis)
+    chain(xs, true, side, ROW.total, true)
+    chain(ys, false, side, ROW.total, true)
+  }
+
+  // Tanda potongan: garis tebal pendek di luar denah, lingkaran berhuruf, segitiga ke arah pandang.
+  // Potongan A memandang ke utara (atas gambar), B ke barat (kiri).
+  const cut = (letter: string, horiz: boolean, v: number) => {
+    for (const side of [-1, 1] as const) {
+      const [cx, cy] = horiz ? [(side < 0 ? e.x0 : e.x1) + side * ROW.bubble, v] : [v, (side < 0 ? e.y0 : e.y1) + side * ROW.bubble]
+      const [ix, iy] = horiz ? [cx - side * 0.6, cy] : [cx, cy - side * 0.6]
+      out.push(`<line x1='${cx}' y1='${cy}' x2='${ix}' y2='${iy}' stroke='${INK}' stroke-width='0.07'/>`)
+      const tri = horiz ? `${cx - 0.2},${cy - 0.26} ${cx + 0.2},${cy - 0.26} ${cx},${cy - 0.58}` : `${cx - 0.26},${cy - 0.2} ${cx - 0.26},${cy + 0.2} ${cx - 0.58},${cy}`
+      out.push(`<polygon points='${tri}' fill='${INK}'/>`)
+      out.push(`<circle cx='${cx}' cy='${cy}' r='0.28' fill='#f3eee3' stroke='${INK}' stroke-width='0.03'/>` + label(cx, cy, letter, 0.22))
+    }
+  }
+  // Di tengah bentang as terlebar: jauh dari gelembung as di kiri-kanannya.
+  const mid = (vals: number[]) => {
+    if (vals.length < 2) return null
+    let i = 0
+    for (let k = 1; k + 1 < vals.length; k++) if (vals[k + 1] - vals[k] > vals[i + 1] - vals[i]) i = k
+    return (vals[i] + vals[i + 1]) / 2
+  }
+  const [cutY, cutX] = [mid(ys), mid(xs)]
+  if (cutY !== null) cut('A', true, cutY)
+  if (cutX !== null) cut('B', false, cutX)
+
   out.push(...planBody(p, true))
+
+  // Kode pintu/jendela: di dinding luar selalu di sisi luar (walau ada teras), di dalam di sisi tanpa ruangan bila ada.
+  const codes = openingCodes(p.openings)
+  const center = planCenter(p)
+  const outer = (q: Wall) =>
+    [wb.x0, wb.x1].some((x) => Math.abs(q.a[0] - x) < 0.01 && Math.abs(q.b[0] - x) < 0.01) ||
+    [wb.y0, wb.y1].some((y) => Math.abs(q.a[1] - y) < 0.01 && Math.abs(q.b[1] - y) < 0.01)
+  for (const o of p.openings) {
+    const q = p.walls.find((x) => x.id === o.wallId)
+    if (!q) continue
+    const ends = [pointAlong(q, o.at - o.width / 2), pointAlong(q, o.at + o.width / 2)] as const
+    const d = dimensionLabel(...ends, q.thickness / 2 + 0.3, outer(q) ? undefined : p, center)
+    if (!d) continue
+    const shape =
+      o.kind === 'door'
+        ? `<ellipse cx='${d.x}' cy='${d.y}' rx='0.26' ry='0.15' fill='#f3eee3' stroke='${INK}' stroke-width='0.018'/>`
+        : `<rect x='${d.x - 0.24}' y='${d.y - 0.13}' width='0.48' height='0.26' fill='#f3eee3' stroke='${INK}' stroke-width='0.018'/>`
+    out.push(shape + label(d.x, d.y, codes.get(o.id)!, 0.14))
+  }
   return `<svg xmlns='http://www.w3.org/2000/svg' viewBox='${x0} ${y0} ${w} ${h}' role='img'>${out.join('')}</svg>`
 }
