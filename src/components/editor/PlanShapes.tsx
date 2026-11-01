@@ -36,7 +36,7 @@ export function FurnitureShape({ f, selected, ghost, onDown }: { f: Furniture; s
   const { w, d } = dims(f)
   return (
     <g
-      className={`furn ${selected ? 'furn-sel' : ''} ${ghost ? 'furn-ghost' : ''}`}
+      className={`furn ${f.kind === 'canopy' ? 'furn-over' : ''} ${f.kind === 'column' ? 'furn-col' : ''} ${f.kind === 'tree' ? 'furn-tree' : ''} ${selected ? 'furn-sel' : ''} ${ghost ? 'furn-ghost' : ''}`}
       transform={`translate(${f.pos[0]} ${f.pos[1]}) rotate(${f.rot})`}
       onPointerDown={onDown}
     >

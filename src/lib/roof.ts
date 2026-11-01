@@ -2,16 +2,18 @@
 // lalu teritisan menjorok keluar dan turun mengikuti kemiringan yang sama.
 // Denah L/T/U dipecah jadi sayap persegi; sayap sempit bertemu sayap lebar di bubungannya.
 
-import { elevationOf, levelOf, levelsOf, type Project, type Wall } from './project'
+import { elevationOf, levelOf, levelsOf, polygonArea, type Point, type Project, type Room, type Wall } from './project'
 import { faces } from './rooms'
 import { inPolygon } from './walk'
 
-export type RoofType = 'datar' | 'pelana' | 'perisai'
+export type RoofType = 'datar' | 'pelana' | 'perisai' | 'sandar'
 export type RoofMaterial = 'genteng' | 'metal' | 'beton'
-export type Roof = { type: RoofType; pitch: number; overhang: number; material: RoofMaterial; ridge: 'auto' | 'putar' }
+// flip: atap sandar (miring satu arah) dibalik, sisi tinggi pindah ke seberang.
+// vent: lubang angin (roster) di tengah tiap gevel.
+export type Roof = { type: RoofType; pitch: number; overhang: number; material: RoofMaterial; ridge: 'auto' | 'putar'; flip?: boolean; vent?: boolean }
 
 export const DEFAULT_ROOF: Roof = { type: 'datar', pitch: 30, overhang: 0.6, material: 'genteng', ridge: 'auto' }
-export const ROOF_LABELS: Record<RoofType, string> = { datar: 'Datar', pelana: 'Pelana', perisai: 'Perisai' }
+export const ROOF_LABELS: Record<RoofType, string> = { datar: 'Datar', pelana: 'Pelana', perisai: 'Perisai', sandar: 'Miring' }
 export const ROOF_MATERIALS: Record<RoofMaterial, { label: string; base: string }> = {
   genteng: { label: 'Genteng tanah liat', base: '#a5543a' },
   metal: { label: 'Genteng metal', base: '#5d6b70' },
@@ -22,7 +24,9 @@ export const isRoof = (r: unknown): r is Roof => {
   const o = r as Roof
   return (
     !!o &&
-    ['datar', 'pelana', 'perisai'].includes(o.type) &&
+    ['datar', 'pelana', 'perisai', 'sandar'].includes(o.type) &&
+    (o.flip === undefined || typeof o.flip === 'boolean') &&
+    (o.vent === undefined || typeof o.vent === 'boolean') &&
     ['genteng', 'metal', 'beton'].includes(o.material) &&
     ['auto', 'putar'].includes(o.ridge) &&
     o.pitch >= 5 &&
@@ -35,7 +39,9 @@ export const isRoof = (r: unknown): r is Roof => {
 type V3 = [number, number, number]
 // Segitiga dengan UV dalam meter (u sepanjang lis, v sepanjang kemiringan) supaya tekstur genteng seukuran aslinya.
 export type Tri = { p: [V3, V3, V3]; uv: [[number, number], [number, number], [number, number]] }
-export type RoofMesh = { roof: Tri[]; gables: Tri[]; area: number; ridgeHeight: number }
+// Bilah roster: balok tipis di bidang gevel. size = [panjang, tinggi, tebal], rotY seperti Piece di mesh.ts.
+export type Slat = { center: V3; size: V3; rotY: number }
+export type RoofMesh = { roof: Tri[]; gables: Tri[]; vents: Slat[]; area: number; ridgeHeight: number }
 
 const sub = (a: V3, b: V3): V3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
 const cross = (a: V3, b: V3): V3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
@@ -185,6 +191,12 @@ export function roofMesh(p: Project, r: Roof): RoofMesh | null {
   const hip = r.type === 'perisai'
   const roof: Tri[] = []
   const gables: Tri[] = []
+  const vents: Slat[] = []
+  // Roster 6 bilah selebar `len`, berpusat di (a, y, c) pada bidang tegak di a (sumbu bubungan).
+  const vent = (toW: (a: number, y: number, c: number) => V3, alongX: boolean, a: number, y: number, c: number, len: number) => {
+    if (!r.vent || len < 0.4) return
+    for (let k = 0; k < 6; k++) vents.push({ center: toW(a, y - 0.25 + k * 0.1, c), size: [len, 0.05, 0.12], rotY: alongX ? -Math.PI / 2 : 0 })
+  }
   const plan: Rect[] = []
   let ridgeHeight = H
 
@@ -208,6 +220,31 @@ export function roofMesh(p: Project, r: Roof): RoofMesh | null {
     const r1 = hip1 ? a1 - Math.min(half, room) : A1
     const ry = H + Math.min(half, room) * t
     ridgeHeight = Math.max(ridgeHeight, ry)
+    if (r.type === 'sandar') {
+      // Satu bidang dari lis rendah ke sisi tinggi. Bidang melewati tepi luar puncak dinding sisi rendah.
+      const [lo, hi] = r.flip ? [c0, c1] : [c1, c0]
+      const dir = Math.sign(hi - lo) // arah naik di sumbu melintang
+      const yAt = (c: number) => H + (c - lo) * dir * t
+      const A0s = a0 - o
+      const A1s = a1 + o
+      const Lo = lo - dir * o
+      const Hi = hi + dir * o
+      const top = yAt(Hi)
+      ridgeHeight = Math.max(ridgeHeight, top)
+      const sl = Math.hypot(Hi - Lo, top - eaveY)
+      quad(roof, [toW(A0s, eaveY, Lo), toW(A1s, eaveY, Lo), toW(A1s, top, Hi), toW(A0s, top, Hi)], [[0, 0], [A1s - A0s, 0], [A1s - A0s, sl], [0, sl]])
+      // Dinding pengisi: sisi tinggi (persegi) dan kedua ujung (segitiga + lajur), dari puncak dinding ke bidang atap.
+      const yh = yAt(hi)
+      quad(gables, [toW(a0, W, hi), toW(a1, W, hi), toW(a1, yh, hi), toW(a0, yh, hi)], [[0, 0], [a1 - a0, 0], [a1 - a0, yh - W], [0, yh - W]])
+      for (const a of [a0, a1])
+        gables.push(
+          { p: [toW(a, W, lo), toW(a, W, hi), toW(a, yh, hi)], uv: [[0, 0], [half * 2, 0], [half * 2, yh - W]] },
+          { p: [toW(a, W, lo), toW(a, yh, hi), toW(a, H, lo)], uv: [[0, 0], [half * 2, yh - W], [0, H - W]] },
+        )
+      for (const a of [a0, a1]) vent(toW, w.alongX, a, W + (yh - W) * 0.5, (lo + hi) / 2, Math.min(1.2, half * 0.5))
+      plan.push(w.alongX ? { x0: A0s, x1: A1s, z0: c0 - o, z1: c1 + o } : { x0: c0 - o, x1: c1 + o, z0: A0s, z1: A1s })
+      continue
+    }
     const E = (a: number, c: number) => toW(a, eaveY, c)
     const R0 = toW(r0, ry, cm)
     const R1 = toW(r1, ry, cm)
@@ -229,6 +266,7 @@ export function roofMesh(p: Project, r: Roof): RoofMesh | null {
             { p: [toW(a, W, c0), toW(a, ry, cm), toW(a, H, c0)], uv: [[0, 0], [half, ry - W], [0, H - W]] },
             { p: [toW(a, W, c1), toW(a, H, c1), toW(a, ry, cm)], uv: [[c1 - c0, 0], [c1 - c0, H - W], [half, ry - W]] },
           )
+          vent(toW, w.alongX, a, W + (ry - W) * 0.4, cm, Math.min(1.2, half * 0.6))
         }
     const [x0, x1] = w.alongX ? [A0, A1] : [c0 - o, c1 + o]
     const [z0, z1] = w.alongX ? [c0 - o, c1 + o] : [A0, A1]
@@ -238,5 +276,38 @@ export function roofMesh(p: Project, r: Roof): RoofMesh | null {
   // Semua bidang berkemiringan sama, jadi luas sebenarnya = luas tampak atas / cos(kemiringan).
   // Dihitung dari tampak atas gabungan supaya bagian sayap yang bertumpuk tidak terhitung dua kali.
   const area = unionArea(plan) / Math.cos((r.pitch * Math.PI) / 180)
-  return { roof, gables, area, ridgeHeight }
+  return { roof, gables, vents, area, ridgeHeight }
+}
+
+// Ruangan yang atasnya terbuka: bukan di lantai teratas, dan kurang dari separuh luasnya tertutup ruangan lantai di atasnya
+// atau tapak atap utama.
+// Diberi dak beton datar setinggi puncak dinding lantainya, supaya tidak tampak terbuka ke langit.
+// shortcut: ruangan yang tertutup sebagian (≥ 50 %) tidak diberi dak; bagian terbukanya tetap tanpa atap. Ganti dengan
+// pemotongan poligon kalau denah seperti itu jadi umum.
+export function exposedRooms(p: Project): { room: Room; y: number }[] {
+  const b = roofBase(p)
+  if (!b) return []
+  const out: { room: Room; y: number }[] = []
+  for (const room of p.rooms) {
+    const level = levelOf(p, room)
+    const e = elevationOf(p, level)
+    if (level === b.level) continue
+    const above = p.rooms.filter((r) => elevationOf(p, levelOf(p, r)) > e)
+    const xs = room.points.map((q) => q[0])
+    const zs = room.points.map((q) => q[1])
+    let inside = 0
+    let covered = 0
+    for (let x = Math.min(...xs) + 0.25; x < Math.max(...xs); x += 0.5)
+      for (let z = Math.min(...zs) + 0.25; z < Math.max(...zs); z += 0.5) {
+        const q: Point = [x, z]
+        if (!inPolygon(q, room.points)) continue
+        inside++
+        // Tertutup lantai di atasnya, atau berada di dalam tapak atap utama (mis. void yang beratap).
+        if (above.some((r) => inPolygon(q, r.points)) || b.rects.some((r) => x > r.x0 && x < r.x1 && z > r.z0 && z < r.z1)) covered++
+      }
+    if (!inside || covered / inside >= 0.5 || polygonArea(room.points) < 0.5) continue
+    const walls = p.walls.filter((w) => levelOf(p, w) === level)
+    out.push({ room, y: e + Math.max(0, ...walls.map((w) => w.height)) })
+  }
+  return out
 }

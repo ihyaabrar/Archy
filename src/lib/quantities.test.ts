@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_COEF, quantities, toCsv } from './quantities'
+import { DEFAULT_COEF, quantities, toCsv, priceKey, totalCost } from './quantities'
 import { addLevel, emptyProject, type Project } from './project'
 
 // Ruang 4×3 m, dinding 3 m, satu pintu 0,9×2,1 dan satu jendela 1,2×1,2.
@@ -51,5 +51,20 @@ describe('volume material', () => {
     expect(csv.startsWith('﻿Lantai;Kelompok;Item;Jumlah;Satuan;Keterangan')).toBe(true)
     expect(csv).toContain('Lantai 2;Dinding;Panjang dinding (as);2;m;')
     expect(csv).toMatch(/;\d+,\d+;m²;/)
+  })
+
+  it('harga satuan: jumlah harga per baris, total, dan kolom harga di CSV hanya kalau ada harga', () => {
+    const rows = [
+      { level: 'Lantai 1', group: 'Dinding', item: 'Bata', qty: 100, unit: 'buah', note: '' },
+      { level: 'Lantai 2', group: 'Dinding', item: 'Bata', qty: 50, unit: 'buah', note: '' },
+      { level: 'Lantai 1', group: 'Lantai', item: 'Keramik', qty: 10, unit: 'm²', note: '' },
+    ]
+    const prices = { [priceKey(rows[0])]: 1000 }
+    expect(totalCost(rows, prices)).toBe(150_000) // sama untuk kedua lantai, keramik belum diisi
+    expect(toCsv(rows)).not.toContain('Harga satuan')
+    const csv = toCsv(rows, prices)
+    expect(csv).toContain('Harga satuan;Jumlah harga')
+    expect(csv).toContain(';1000;100000')
+    expect(csv.endsWith(';;Total;;;;;150000')).toBe(true)
   })
 })

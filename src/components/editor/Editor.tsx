@@ -5,6 +5,7 @@ import { PlanCanvas, type Selection, type Tool, type View } from './PlanCanvas'
 import { Building } from './Building'
 import { ProjectsButton } from './ProjectsDialog'
 import { QuantitiesButton } from './QuantitiesDialog'
+import { DrawingsButton } from './DrawingsDialog'
 import { AccountButton } from './AccountDialog'
 import Link from 'next/link'
 import { adoptShared, discardStoredProject, leaveShared, useProject } from '@/lib/store'
@@ -147,6 +148,7 @@ export function Editor() {
         </h1>
         <ProjectsButton />
         <QuantitiesButton />
+        <DrawingsButton />
         <LevelBar level={level} setLevel={(id) => (setLevelPick(id), setSelection(null), setDraft([]))} />
         <AccountButton />
         <div className="mode-switch" role="group" aria-label="Tampilan">

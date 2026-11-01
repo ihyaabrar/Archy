@@ -6,7 +6,7 @@ import { Edges } from '@react-three/drei'
 import { BufferGeometry, CanvasTexture, DoubleSide, Float32BufferAttribute, MathUtils, Object3D, RepeatWrapping, SRGBColorSpace, Path, Shape, Vector2, type Group } from 'three'
 import { bounds, buildPieces, type Piece } from '@/lib/mesh'
 import { DEFAULT_FLOOR, DEFAULT_WALL, paint, repeatSize, type FloorKey, type TextureKey, type WallKey } from '@/lib/materials'
-import { DEFAULT_ROOF, roofMesh, type Roof, type Tri } from '@/lib/roof'
+import { DEFAULT_ROOF, exposedRooms, roofMesh, type Roof, type Tri } from '@/lib/roof'
 import { centroid, elevationOf, polygonArea, finishOf, levelOf, levelsOf, type Point, type Project, type Room } from '@/lib/project'
 import { slabHoles } from '@/lib/stairs'
 
@@ -30,6 +30,8 @@ export function BuildingScene({ project, roof, lamps, hour, level }: { project: 
   // Dihitung sekali per denah: geometri pelat dibangun ulang hanya kalau lubangnya berubah.
   const holes = useMemo(() => new Map(project.rooms.map((r) => [r.id, slabHoles(project, levelOf(project, r), r.points)])), [project])
   const finishes = useMemo(() => new Map(project.walls.map((w) => [w.id, finishOf(project, w)])), [project])
+  // Ruang lantai bawah yang tidak tertutup lantai atas maupun atap utama: diberi dak beton.
+  const exposed = useMemo(() => exposedRooms(project), [project])
 
   return (
     <>
@@ -61,10 +63,12 @@ export function BuildingScene({ project, roof, lamps, hour, level }: { project: 
           ) : (
             <PitchedRoof project={project} roof={project.roof ?? DEFAULT_ROOF} finish={wall} />
           ))}
+        {roof && exposed.map(({ room, y }) => <Slab key={'dak' + room.id} points={room.points} y={y} color={PAPER} thick={0.15} />)}
         {lamps && <Lamps project={project} />}
       </Rise>
 
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[center[0], -0.01, center[1]]} receiveShadow>
+      {/* Muka tanah sedikit di bawah lantai terendah, supaya lantai yang diturunkan (teras, KM) tetap terlihat. */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[center[0], Math.min(0, ...project.rooms.map((r) => r.offset ?? 0)) - 0.01, center[1]]} receiveShadow>
         <planeGeometry args={[size * 6, size * 6]} />
         <meshStandardMaterial color="#ebe4d6" />
       </mesh>
@@ -97,7 +101,8 @@ function Rise({ children, level }: { children: React.ReactNode; level?: RefObjec
 // Lantai dasar tipis di muka tanah; lantai atas berupa pelat 15 cm yang bagian atasnya rata dengan elevasi lantai.
 function RoomFloor({ room, elev, holes }: { room: Room; elev: number; holes?: Point[][] }) {
   const floor = room.floor ?? DEFAULT_FLOOR
-  return elev > 0 ? <Slab points={room.points} holes={holes} y={elev - 0.15} floor={floor} thick={0.15} /> : <Slab points={room.points} y={0.005} floor={floor} />
+  const o = room.offset ?? 0
+  return elev > 0 ? <Slab points={room.points} holes={holes} y={elev - 0.15 + o} floor={floor} thick={0.15} /> : <Slab points={room.points} y={0.005 + o} floor={floor} />
 }
 
 // Lantai atau atap dari poligon ruangan. Shape di bidang XY, diputar ke bidang lantai (z = y denah).
@@ -139,6 +144,12 @@ function PitchedRoof({ project, roof, finish }: { project: Project; roof: Roof; 
           <Edges color={INK} threshold={20} />
         </mesh>
       )}
+      {mesh?.vents.map((s, i) => (
+        <mesh key={i} position={s.center} rotation={[0, s.rotY, 0]}>
+          <boxGeometry args={s.size} />
+          <meshStandardMaterial color={DOOR} />
+        </mesh>
+      ))}
     </>
   )
 }

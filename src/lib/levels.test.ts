@@ -24,12 +24,12 @@ function twoStorey(): { p: Project; up: string } {
 }
 
 describe('bangunan bertingkat', () => {
-  it('dinding lantai atas dinaikkan setinggi elevasi', () => {
+  it('dinding lantai atas dinaikkan setinggi elevasi; dinding bawah menyambung sampai lantai atas', () => {
     const { p } = twoStorey()
-    const ys = buildPieces(p)
-      .filter((x) => x.kind === 'wall')
-      .map((x) => x.center[1])
-    expect(ys).toEqual([1.5, 3.2 + 1.5])
+    const walls = buildPieces(p).filter((x) => x.kind === 'wall')
+    // Dinding 3 m di lantai 1 naik sampai elevasi lantai 2 (3,2 m): tidak ada celah setebal pelat.
+    expect(walls.map((x) => x.center[1])).toEqual([1.6, 3.2 + 1.5])
+    expect(walls[0].size[1]).toBeCloseTo(3.2)
   })
 
   it('tangga jadi anak tangga yang makin tinggi', () => {

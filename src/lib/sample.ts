@@ -148,6 +148,10 @@ const rooms: Room[] = [
   room('L2', 'balkon', 'Balkon', rect(6, 14.5, 13, 16.5), 'kayu'),
 ]
 
+// Peil: ruang basah dan ruang luar sedikit lebih rendah supaya air tidak mengalir ke ruang lain.
+const OFFSET: Record<string, number> = { carport: -0.1, teras: -0.05, balkon: -0.05, jemur: -0.05, kmart: -0.03, kmtamu: -0.03, kmanak: -0.03, kmutama: -0.03, kotor: -0.03 }
+for (const r of rooms) if (OFFSET[r.id]) r.offset = OFFSET[r.id]
+
 // Ruang luar dan sambungan ruang tanpa dinding (denah terbuka). Dipakai tes "tidak ada dinding bolong".
 export const OUTDOOR = ['carport', 'teras', 'jemur', 'balkon']
 export const OPEN_PAIRS = [
@@ -179,6 +183,10 @@ const furniture: Furniture[] = [
   f('L1', 'k16', 'sofa', 11.25, 16.05, 180),
   f('L1', 'k17', 'armchair', 10.0, 13.5, 270),
   f('L1', 'k18', 'armchair', 12.5, 13.5, 90),
+  f('L1', 'k19', 'washer', 6.45, 2.0, 270),
+  f('L1', 'k20', 'tv', 5.75, 7.75, 90),
+  f('L1', 'k21', 'plant', 6.4, 16.1),
+  f('L1', 'k22', 'plant', 9.1, 16.1),
   // Lantai 2
   f('L2', 'm1', 'desk', 3, 0.4),
   f('L2', 'm2', 'armchair', 1, 3.4, 270),
@@ -198,6 +206,9 @@ const furniture: Furniture[] = [
   f('L2', 'm16', 'desk', 0.4, 12.4, 270),
   f('L2', 'm17', 'sofa', 9.5, 11.55),
   f('L2', 'm18', 'armchair', 12.4, 12.75, 90),
+  f('L2', 'm19', 'vanity', 5.75, 14.0, 90),
+  f('L2', 'm20', 'plant', 6.45, 16.05),
+  f('L2', 'm21', 'plant', 12.55, 16.05),
 ]
 
 export const SAMPLE_NAME = 'Rumah Tropis Dua Lantai'
@@ -209,7 +220,7 @@ export const SAMPLE: Project = {
   rooms,
   furniture,
   levels: LEVELS,
-  roof: { type: 'pelana', pitch: 30, overhang: 1, material: 'genteng', ridge: 'auto' },
+  roof: { type: 'pelana', pitch: 30, overhang: 1, material: 'genteng', ridge: 'auto', vent: true },
 }
 
 const AXES = { x: [0, 6, 9.5, 13], y: [0, 4.5, 8, 11, 16.5] }

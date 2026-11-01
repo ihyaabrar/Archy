@@ -132,4 +132,10 @@ describe('riwayat', () => {
     useProject.getState().apply((p) => ({ ...p, walls: [] }))
     expect(useProject.getState().future).toHaveLength(0)
   })
+
+  it('beda tinggi lantai ruangan: angka ±1 m diterima, selebihnya ditolak', () => {
+    const room = { id: 'r', name: 'KM', points: [[0, 0], [2, 0], [2, 2]] as [number, number][] }
+    expect(parseProject({ ...emptyProject(), rooms: [{ ...room, offset: -0.03 }] }).rooms[0].offset).toBe(-0.03)
+    expect(() => parseProject({ ...emptyProject(), rooms: [{ ...room, offset: 5 }] })).toThrow('beda tinggi')
+  })
 })

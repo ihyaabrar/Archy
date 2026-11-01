@@ -43,15 +43,15 @@ export function dimensionLabel(a: Point, b: Point, offset: number, p?: Pick<Proj
 
 export const planCenter = (p: Project) => (p.walls.length ? centroid(p.walls.flatMap((w) => [w.a, w.b])) : undefined)
 
-const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
+export const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
 const pts = (ps: Point[]) => ps.map((q) => `${+q[0].toFixed(3)},${+q[1].toFixed(3)}`).join(' ')
 
-const INK = '#2a2420'
-const PENCIL = '#645a50'
+export const INK = '#2a2420'
+export const PENCIL = '#645a50'
 // Halo kertas di belakang teks: label tetap terbaca walau menimpa garis atau teks lain.
 const HALO = "stroke='#f3eee3' stroke-width='0.06' stroke-linejoin='round' paint-order='stroke'"
-const MONO = `font-family='IBM Plex Mono, ui-monospace, monospace' ${HALO}`
-const SERIF = `font-family='Stardos Stencil, Georgia, serif' font-weight='700' ${HALO}`
+export const MONO = `font-family='IBM Plex Mono, ui-monospace, monospace' ${HALO}`
+export const SERIF = `font-family='Stardos Stencil, Georgia, serif' font-weight='700' ${HALO}`
 
 // Isi gambar denah (ruangan, furnitur, dinding, bukaan, label). `sheet` = gaya lembar kerja blueprint:
 // tanpa ukuran per dinding (diganti rantai ukuran di as) dan nama ruangan kapital.
@@ -66,8 +66,10 @@ function planBody(p: Project, sheet = false) {
   for (const f of p.furniture) {
     const { w: fw, d: fd } = dims(f)
     out.push(
-      `<g transform='translate(${f.pos[0]} ${f.pos[1]}) rotate(${f.rot})'><rect x='${-fw / 2}' y='${-fd / 2}' width='${fw}' height='${fd}' fill='#f3eee3'/>` +
-        symbol(f.kind, fw, fd).map((d) => `<path d='${d}' fill='none' stroke='${PENCIL}' stroke-width='0.015'/>`).join('') +
+      // Kanopi ada di atas kepala: tanpa isi dan putus-putus, lantai di bawahnya tetap terlihat.
+      // Kolom struktur diisi hitam (poché) seperti dinding; pohon tanpa latar supaya rumput di bawahnya terlihat.
+      `<g transform='translate(${f.pos[0]} ${f.pos[1]}) rotate(${f.rot})'>${f.kind === 'canopy' || f.kind === 'tree' ? '' : `<rect x='${-fw / 2}' y='${-fd / 2}' width='${fw}' height='${fd}' fill='${f.kind === 'column' ? INK : '#f3eee3'}'/>`}` +
+        symbol(f.kind, fw, fd).map((d) => `<path d='${d}' fill='none' stroke='${PENCIL}' stroke-width='0.015'${f.kind === 'canopy' ? " stroke-dasharray='0.15 0.08'" : ''}/>`).join('') +
         '</g>',
     )
   }
@@ -94,6 +96,8 @@ function planBody(p: Project, sheet = false) {
     const name = sheet ? r.name.toUpperCase() : r.name
     out.push(`<text x='${cx}' y='${cy - 0.1}' ${nameFont} font-size='${sheet ? 0.24 : 0.3}' fill='${INK}' text-anchor='middle'>${esc(name)}</text>`)
     out.push(`<text x='${cx}' y='${cy + 0.22}' ${MONO} font-size='0.16' fill='${PENCIL}' text-anchor='middle'>${roomSize(r.points, sheet)}</text>`)
+    // Peil lantai ruangan yang lebih rendah/tinggi dari lantai sekitarnya, seperti di gambar kerja.
+    if (r.offset) out.push(`<text x='${cx}' y='${cy + 0.45}' ${MONO} font-size='0.15' fill='${INK}' text-anchor='middle'>${r.offset > 0 ? '+' : ''}${r.offset.toFixed(2)}</text>`)
   }
   for (const n of p.notes ?? []) {
     if (!n.b) {
@@ -303,6 +307,33 @@ const sitePoints = (site: Site): Point[] => [
   ...(site.trees ?? []).flatMap(({ at, r }) => [[at[0] - r, at[1] - r], [at[0] + r, at[1] + r]] as Point[]),
 ]
 
+// As struktur: yang ditetapkan tapak, atau dari posisi dinding lurus setinggi ruangan (pagar dan dinding rendah bukan as).
+export function planAxes(p: Project, axes?: Site['axes']) {
+  if (axes) return axes
+  const walls = p.walls.filter((w) => w.height >= 2)
+  return {
+    x: gridLines(walls.filter((w) => Math.abs(w.a[0] - w.b[0]) < 0.01).map((w) => w.a[0])),
+    y: gridLines(walls.filter((w) => Math.abs(w.a[1] - w.b[1]) < 0.01).map((w) => w.a[1])),
+  }
+}
+
+// Letak potongan A (garis mendatar, memandang ke utara) dan B (garis tegak, memandang ke barat):
+// di tengah bentang as, mulai dari yang terlebar (jauh dari gelembung as). Bentang yang tengahnya berimpit dinding
+// sejajar dilewati, karena memotong sepanjang dinding menghasilkan blok hitam tanpa informasi.
+// Dipakai tanda potongan di denah dan gambar potongannya.
+export function sectionCuts(p: Project, axes?: Site['axes']) {
+  const { x, y } = planAxes(p, axes)
+  const pick = (vals: number[], k: 0 | 1) => {
+    const mids = vals
+      .slice(1)
+      .map((v, i) => ({ m: (vals[i] + v) / 2, w: v - vals[i] }))
+      .sort((a, b) => b.w - a.w)
+    const along = p.walls.filter((w) => Math.abs(w.a[k] - w.b[k]) < 0.01)
+    return (mids.find(({ m }) => along.every((w) => Math.abs(w.a[k] - m) > 0.3)) ?? mids[0])?.m ?? null
+  }
+  return { a: pick(y, 1), b: pick(x, 0) }
+}
+
 // Kode bukaan seperti di gambar kerja: pintu P1, P2, …, jendela J1, J2, … Bukaan sejenis (jenis, gaya, ukuran) berbagi kode.
 export function openingCodes(openings: Opening[]) {
   const types = new Map<string, string>()
@@ -319,7 +350,7 @@ export function openingCodes(openings: Opening[]) {
 // Lembar kerja blueprint untuk halaman depan. Di keempat sisi: rantai ukuran bukaan (dinding luar), rantai ukuran antar as,
 // ukuran total, dan gelembung as (A, B, C / 1, 2, 3). Di dalam: kode pintu/jendela dan tanda potongan A dan B.
 // Tanpa latar, supaya menyatu dengan kertas halaman. Ukuran responsif (tanpa width/height fisik).
-export function blueprintSvg(p: Project, site: Site = {}) {
+export function blueprintSvg(p: Project, site: Site = {}, title?: string) {
   const base = extent(p)
   if (!base) return null
   const sp = sitePoints(site)
@@ -329,8 +360,7 @@ export function blueprintSvg(p: Project, site: Site = {}) {
     x1: Math.max(base.x1, ...sp.map((q) => q[0])),
     y1: Math.max(base.y1, ...sp.map((q) => q[1])),
   }
-  const xs = site.axes?.x ?? gridLines(p.walls.filter((w) => Math.abs(w.a[0] - w.b[0]) < 0.01).map((w) => w.a[0]))
-  const ys = site.axes?.y ?? gridLines(p.walls.filter((w) => Math.abs(w.a[1] - w.b[1]) < 0.01).map((w) => w.a[1]))
+  const { x: xs, y: ys } = planAxes(p, site.axes)
   // Jarak tiap baris dari tepi denah ke luar: rantai bukaan, rantai as, total, gelembung as.
   const ROW = { open: 0.7, axis: 1.35, total: 2.0, bubble: 2.75 }
   const m = 3.3
@@ -418,16 +448,9 @@ export function blueprintSvg(p: Project, site: Site = {}) {
       out.push(`<circle cx='${cx}' cy='${cy}' r='0.28' fill='#f3eee3' stroke='${INK}' stroke-width='0.03'/>` + label(cx, cy, letter, 0.22))
     }
   }
-  // Di tengah bentang as terlebar: jauh dari gelembung as di kiri-kanannya.
-  const mid = (vals: number[]) => {
-    if (vals.length < 2) return null
-    let i = 0
-    for (let k = 1; k + 1 < vals.length; k++) if (vals[k + 1] - vals[k] > vals[i + 1] - vals[i]) i = k
-    return (vals[i] + vals[i + 1]) / 2
-  }
-  const [cutY, cutX] = [mid(ys), mid(xs)]
-  if (cutY !== null) cut('A', true, cutY)
-  if (cutX !== null) cut('B', false, cutX)
+  const cuts = sectionCuts(p, site.axes)
+  if (cuts.a !== null) cut('A', true, cuts.a)
+  if (cuts.b !== null) cut('B', false, cuts.b)
 
   out.push(...planBody(p, true), ...siteOver(site))
 
@@ -449,5 +472,25 @@ export function blueprintSvg(p: Project, site: Site = {}) {
         : `<rect x='${d.x - 0.24}' y='${d.y - 0.13}' width='0.48' height='0.26' fill='#f3eee3' stroke='${INK}' stroke-width='0.018'/>`
     out.push(shape + label(d.x, d.y, codes.get(o.id)!, 0.14))
   }
-  return `<svg xmlns='http://www.w3.org/2000/svg' viewBox='${x0} ${y0} ${w} ${h}' role='img'>${out.join('')}</svg>`
+  if (!title) return `<svg xmlns='http://www.w3.org/2000/svg' viewBox='${x0} ${y0} ${w} ${h}' role='img'>${out.join('')}</svg>`
+  // Untuk dicetak: latar kertas, kepala gambar di bawah, ukuran fisik 1 m = 1 cm (skala 1:100).
+  const by = y0 + h + 0.2
+  out.push(`<text x='${x0 + 0.6}' y='${by + 0.35}' ${SERIF} font-size='0.35' fill='${INK}'>${esc(title)}</text>`)
+  for (let i = 0; i < 5; i++) out.push(`<rect x='${x0 + 0.6 + i}' y='${by + 0.55}' width='1' height='0.12' fill='${i % 2 ? '#f3eee3' : INK}' stroke='${INK}' stroke-width='0.02'/>`)
+  out.push(`<text x='${x0 + 0.6}' y='${by + 0.9}' ${MONO} font-size='0.16' fill='${PENCIL}'>0</text><text x='${x0 + 5.6}' y='${by + 0.9}' ${MONO} font-size='0.16' fill='${PENCIL}' text-anchor='middle'>5 m · 1:100</text>`)
+  const H = h + 1.4
+  return `<svg xmlns='http://www.w3.org/2000/svg' width='${+w.toFixed(3)}cm' height='${+H.toFixed(3)}cm' viewBox='${x0} ${y0} ${w} ${H}' role='img'><rect x='${x0}' y='${y0}' width='${w}' height='${H}' fill='#f3eee3'/>${out.join('')}</svg>`
+}
+
+// Lembar kerja tiap lantai untuk dicetak (PDF) dan diunduh (PNG): as, rantai ukuran, kode pintu/jendela, potongan.
+export function workSheets(p: Project, name: string, site: Record<string, Site> = {}) {
+  const levels = [...levelsOf(p)].sort((a, b) => a.elevation - b.elevation)
+  return levels.flatMap((l) => {
+    const part = onLevel(p, l.id)
+    if (!part.walls.length && !part.rooms.length) return []
+    const svg = blueprintSvg(part, site[l.id] ?? { axes: planAxes(p) }, levels.length > 1 ? `${name}, Denah ${l.name}` : `${name}, Denah`)
+    if (!svg) return []
+    const [, , width, height] = svg.match(/viewBox='([^']+)'/)![1].split(' ').map(Number)
+    return [{ svg, width, height, title: l.name }]
+  })
 }

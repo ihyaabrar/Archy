@@ -54,4 +54,28 @@ describe('furnitur', () => {
     const p = { ...emptyProject(), furniture: [{ id: 's', kind: 'shower' as const, pos: [1, 1] as [number, number], rot: 0 }] }
     expect(blockers(p)).toHaveLength(0)
   })
+
+  it('kanopi: bisa dilewati, digambar putus-putus tanpa menutup lantai, tiang setinggi pasang', () => {
+    const canopy: Furniture = { id: 'k', kind: 'canopy', pos: [2, 2], rot: 0 }
+    const p = { ...emptyProject(), furniture: [canopy, { ...bed, id: 'b' }] }
+    expect(blockers(p).length).toBe(4) // hanya kasur
+    const svg = planSvg({ ...p, walls: [{ id: 'w', a: [0, 0], b: [4, 0], thickness: 0.15, height: 3 }] }, 'x')!.svg
+    expect(svg).toContain("stroke-dasharray='0.15 0.08'")
+    const posts = buildPieces(p).filter((x) => x.wallId === 'k' && x.size[1] === CATALOG.canopy.h)
+    expect(posts).toHaveLength(2)
+  })
+
+  it('setiap jenis katalog punya simbol dan bentuk 3D (kecuali tangga yang dibuat terpisah)', () => {
+    for (const kind of Object.keys(CATALOG) as Furniture['kind'][]) {
+      expect(symbol(kind).length, kind).toBeGreaterThan(0)
+      const pieces = buildPieces({ ...emptyProject(), furniture: [{ id: 'x', kind, pos: [0, 0], rot: 0 }] })
+      expect(pieces.length, kind).toBeGreaterThan(0)
+    }
+  })
+
+  it('pohon: hanya batang 30 cm yang menghalangi jalan, tajuk tidak', () => {
+    const p = { ...emptyProject(), furniture: [{ id: 't', kind: 'tree', pos: [5, 5], rot: 0 } as Furniture] }
+    expect(blocked([5, 5], blockers(p))).toBe(true)
+    expect(blocked([6.2, 5], blockers(p))).toBe(false) // masih di bawah tajuk 3 m
+  })
 })

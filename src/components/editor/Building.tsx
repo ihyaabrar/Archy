@@ -251,7 +251,7 @@ function RoofSettings() {
   return (
     <fieldset className="picker">
       <legend>Atap</legend>
-      <div className="segmented" role="group" aria-label="Bentuk atap">
+      <div className="segmented roof-types" role="group" aria-label="Bentuk atap">
         {(Object.keys(ROOF_LABELS) as RoofType[]).map((t) => (
           <button key={t} className="tool" aria-pressed={roof.type === t} onClick={() => roof.type !== t && set({ type: t })}>
             {ROOF_LABELS[t]}
@@ -273,9 +273,21 @@ function RoofSettings() {
             </button>
           ))}
           <button className="btn" onClick={() => set({ ridge: roof.ridge === 'auto' ? 'putar' : 'auto' })}>
-            Putar arah bubungan
+            {roof.type === 'sandar' ? 'Putar arah kemiringan' : 'Putar arah bubungan'}
           </button>
-          <p className="muted">Atap miring mengikuti tapak dinding lantai teratas; denah L atau T dapat sayap atap sendiri. Dinding miring memakai kotak luarnya.</p>
+          <label className="check">
+            <input type="checkbox" checked={!!roof.vent} onChange={(e) => set({ vent: e.target.checked || undefined })} />
+            Lubang angin (roster) di gevel
+          </label>
+          {roof.type === 'sandar' && (
+            <button className="btn" onClick={() => set({ flip: !roof.flip })}>
+              Balik sisi tinggi
+            </button>
+          )}
+          <p className="muted">
+            Atap mengikuti tapak dinding lantai teratas; denah L atau T dapat sayap atap sendiri. Ruang lantai bawah yang tidak tertutup lantai atas diberi dak
+            beton.
+          </p>
         </>
       )}
     </fieldset>

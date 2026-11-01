@@ -27,8 +27,9 @@ export function blockers(p: Project): Segment[] {
   }
   // Furnitur setinggi lutut ke atas menghalangi; alas shower yang rata bisa diinjak.
   for (const f of p.furniture) {
-    if (CATALOG[f.kind].h < 0.3) continue
-    const c = footprint(f)
+    if (CATALOG[f.kind].h < 0.3 || f.kind === 'canopy') continue // rendah, atau di atas kepala (kanopi): bisa dilewati
+    // Pohon: hanya batangnya yang menghalangi, tajuk di atas kepala.
+    const c = f.kind === 'tree' ? footprint({ ...f, w: 0.3, d: 0.3 }) : footprint(f)
     c.forEach((a, i) => out.push({ a, b: c[(i + 1) % 4], half: 0, area: i ? undefined : c }))
   }
   return out

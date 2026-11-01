@@ -17,7 +17,7 @@
   <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-5-2a2420?logo=typescript&logoColor=white">
   <img alt="three.js" src="https://img.shields.io/badge/three.js-0.187-2a2420?logo=threedotjs&logoColor=white">
   <img alt="Supabase" src="https://img.shields.io/badge/Supabase-opsional-2a2420?logo=supabase&logoColor=white">
-  <img alt="Vitest" src="https://img.shields.io/badge/tes-107%20lolos-a8401a?logo=vitest&logoColor=white">
+  <img alt="Vitest" src="https://img.shields.io/badge/tes-127%20lolos-a8401a?logo=vitest&logoColor=white">
   <img alt="Lisensi MIT" src="https://img.shields.io/badge/lisensi-MIT-2a2420">
 </p>
 
@@ -67,24 +67,30 @@ Tombol "Buka contoh ini di editor" menyalinnya jadi proyek Anda sendiri.
 - Dinding dengan snap grid, kunci sudut 45°, dan sambungan otomatis. Dinding bisa dipindah, dipecah, dan diduplikasi.
 - Pintu (ayun, ganda, geser) dan jendela (buka, mati, nako) yang menempel di dinding.
 - Ruangan dari klik titik atau deteksi otomatis dari dinding tertutup. Luas dihitung langsung.
-- Furnitur dari katalog ukuran umum Indonesia: kasur, lemari, sofa, meja makan, kitchen set, kloset, bathtub, tangga.
-- Banyak lantai dengan elevasi sendiri. Tangga melubangi pelat lantai di atasnya.
+- Furnitur dari katalog ukuran umum Indonesia: kasur, lemari, meja rias, sofa, meja TV, meja makan, kitchen set, kulkas, mesin cuci, kloset, bathtub, tanaman pot, pohon, mobil, kanopi bertiang, dan kolom struktur.
+- Beda tinggi lantai per ruangan (misalnya KM −0,03, teras −0,05), tampil sebagai peil di denah dan di 3D.
+- Tangga lurus atau tangga U dengan bordes. Tangga melubangi pelat lantai di atasnya dan bisa dinaiki saat room tour.
+- Banyak lantai dengan elevasi sendiri.
 - Anotasi teks dan garis ukur manual.
 - Bisa dipakai penuh dengan keyboard: `[` dan `]` untuk berpindah elemen, panah untuk menggeser, Enter untuk menaruh titik.
 
 **3D dan room tour**
 - Bangunan 3D dari denah yang sama, dibuat dengan three.js tanpa file model.
 - Material lantai (keramik, parket, teraso, beton) dan dinding (cat, bata ekspos, beton ekspos).
-- Atap datar, pelana, atau perisai, termasuk denah bentuk L dan T.
+- Atap datar, pelana, perisai, atau miring satu arah (arah dan sisi tinggi bisa diatur), dengan pilihan roster di gevel, termasuk denah bentuk L dan T. Ruang lantai bawah yang tidak tertutup lantai atas otomatis diberi dak beton.
 - Matahari sesuai jam (06.00 sampai 21.00) dengan bayangan, dan lampu ruangan untuk malam hari.
 - Jalan di dalam bangunan dengan WASD, panah, atau tombol sentuh. Dinding tidak bisa ditembus, pintu bisa dilewati, dan tangga bisa dinaiki.
 - Tur otomatis per ruangan yang urutannya bisa diatur.
 
+**Gambar kerja**
+- Lembar kerja tiap lantai: as struktur, tiga lapis rantai ukuran, kode pintu dan jendela, tanda potongan.
+- Tampak empat sisi, potongan A-A dan B-B (bagian terpotong digambar hitam), dan denah atap dengan arah air dan kemiringan. Semuanya dibuat otomatis dari denah.
+
 **Berbagi dan ekspor**
 - Tautan bagikan: seluruh denah dikompres ke dalam hash URL, tanpa server.
 - Presentasi scroll untuk klien: denah memudar, bangunan naik, lalu kamera masuk ke tiap ruangan.
-- Ekspor PNG, PDF siap cetak skala 1:100, GLB untuk aplikasi 3D lain, dan file proyek JSON.
-- Volume material (luas dinding per material, lantai, bukaan) sebagai CSV untuk RAB.
+- Ekspor PDF skala 1:100 (denah, tampak, potongan, denah atap), PNG lembar kerja, GLB untuk aplikasi 3D lain, dan file proyek JSON.
+- Volume material (luas dinding per material, lantai, bukaan) dengan harga satuan isian sendiri dan perkiraan biaya material, bisa diunduh sebagai CSV untuk RAB.
 
 **Penyimpanan**
 - Proyek tersimpan di browser dan tetap jalan tanpa akun.
@@ -102,7 +108,7 @@ Tombol "Buka contoh ini di editor" menyalinnya jadi proyek Anda sendiri.
 | 3D | [three.js](https://threejs.org) lewat [React Three Fiber](https://r3f.docs.pmnd.rs) dan drei | Geometri dibuat dari data denah, tekstur digambar dengan kode |
 | Gambar 2D | SVG yang dibangkitkan sendiri | Layar, PNG, PDF, dan lembar kerja memakai modul geometri yang sama |
 | Akun dan cloud | [Supabase](https://supabase.com) (Auth + Postgres dengan RLS) | Opsional; hanya kunci publishable di browser |
-| Tes | [Vitest](https://vitest.dev), Testing Library, jsdom | 107 tes untuk geometri, atap, tangga, ekspor, dan editor |
+| Tes | [Vitest](https://vitest.dev), Testing Library, jsdom | 127 tes untuk geometri, atap, tangga, ekspor, dan editor |
 | Huruf | IBM Plex Sans/Mono, Stardos Stencil, Big Shoulders Stencil | Huruf teknik untuk angka, stensil untuk lettering gambar kerja |
 
 ## Cara kerja

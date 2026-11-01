@@ -94,12 +94,24 @@ export function quantities(p: Project, c: Coefficients = DEFAULT_COEF): Row[] {
 }
 
 // CSV untuk Excel berbahasa Indonesia: pemisah titik koma, desimal koma, BOM supaya huruf terbaca benar.
-export function toCsv(rows: Row[]) {
+// Harga satuan isian pengguna (Rp per satuan), per jenis item. Sama untuk semua lantai.
+export type Prices = Record<string, number>
+export const priceKey = (r: Pick<Row, 'item' | 'unit'>) => `${r.item}|${r.unit}`
+export const rowCost = (r: Row, prices: Prices) => (prices[priceKey(r)] ?? 0) * r.qty
+export const totalCost = (rows: Row[], prices: Prices) => rows.reduce((s, r) => s + rowCost(r, prices), 0)
+
+export function toCsv(rows: Row[], prices: Prices = {}) {
   const cell = (v: string) => (/[;"\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v)
   const num = (n: number) => String(Math.round(n * 100) / 100).replace('.', ',')
+  // Kolom harga hanya muncul kalau ada harga yang diisi.
+  const priced = rows.some((r) => prices[priceKey(r)])
+  const head = ['Lantai', 'Kelompok', 'Item', 'Jumlah', 'Satuan', 'Keterangan', ...(priced ? ['Harga satuan', 'Jumlah harga'] : [])]
   const lines = [
-    ['Lantai', 'Kelompok', 'Item', 'Jumlah', 'Satuan', 'Keterangan'].join(';'),
-    ...rows.map((r) => [r.level, r.group, r.item, num(r.qty), r.unit, r.note].map((v, i) => (i === 3 ? v : cell(v))).join(';')),
+    head.join(';'),
+    ...rows.map((r) =>
+      [cell(r.level), cell(r.group), cell(r.item), num(r.qty), cell(r.unit), cell(r.note), ...(priced ? [num(prices[priceKey(r)] ?? 0), num(rowCost(r, prices))] : [])].join(';'),
+    ),
+    ...(priced ? [['', '', 'Total', '', '', '', '', num(totalCost(rows, prices))].join(';')] : []),
   ]
   return '﻿' + lines.join('\r\n')
 }

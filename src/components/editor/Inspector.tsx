@@ -232,6 +232,13 @@ export function Inspector({ selection, onDelete, onSelect, level }: { selection:
         />
       </label>
       <p className="muted">Luas {polygonArea(r.points).toFixed(1)} m²</p>
+      <NumberField
+        label="Beda tinggi lantai (m)"
+        value={r.offset ?? 0}
+        min={-1}
+        max={1}
+        onCommit={(v) => apply((p) => ({ ...p, rooms: p.rooms.map((x) => (x.id === r.id ? { ...x, offset: v || undefined } : x)) }))}
+      />
       <button className="btn" onClick={() => duplicateSelected(selection, onSelect)} title="Ctrl+D">
         Duplikat
       </button>

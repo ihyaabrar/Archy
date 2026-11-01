@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { emptyProject, type Project } from './project'
 import { flights, footing, slabHoles, stairProgress, walkBlockers } from './stairs'
 import { blocked, move } from './walk'
+import { buildPieces } from './mesh'
+import { STAIR_STEPS, U_FIRST } from './furniture'
 
 // Dua lantai, ruangan 6 × 6 di keduanya. Tangga 1 × 4,2 di tengah, kaki di selatan (y besar), puncak di utara.
 const room: [number, number][] = [[0, 0], [6, 0], [6, 6], [0, 6]]
@@ -54,5 +56,34 @@ describe('tangga antar lantai', () => {
     const l2 = walkBlockers(base, 'L2')
     expect(move([5, 3], [3, 3], l2)[0]).toBeGreaterThan(3.5) // tertahan pagar sisi lubang (tepi di x = 3,5)
     expect(move([3, 0.3], [3, 1.2], l2)[1]).toBeCloseTo(1.2) // masuk dari tepi puncak
+  })
+
+  describe('tangga U dengan bordes', () => {
+    // Tapak 2,2 × 3 di tengah ruangan: x 1,9–4,1, y 1,5–4,5. Bordes 1,1 m di sisi utara (y 1,5–2,6).
+    const u: Project = { ...base, furniture: [{ id: 'u', kind: 'stairsU', pos: [3, 3], rot: 0, level: 'L1' }] }
+    const [fl] = flights(u)
+
+    it('naik di lengan kanan, datar di bordes, naik lagi di lengan kiri sampai puncak di selatan', () => {
+      expect(stairProgress(fl, [3.5, 4.49])).toBeCloseTo(0, 1)
+      expect(stairProgress(fl, [3, 2])).toBeCloseTo(U_FIRST / STAIR_STEPS)
+      expect(stairProgress(fl, [2.5, 4.49])).toBeCloseTo(1, 1)
+      expect(stairProgress(fl, [3.5, 3.5])!).toBeLessThan(stairProgress(fl, [3.5, 3])!)
+      // Di bordes masih lantai bawah, di ujung lengan kiri sudah lantai atas.
+      expect(footing(u, 'L1', [3, 2]).level).toBe('L1')
+      expect(footing(u, 'L1', [2.5, 4.4]).level).toBe('L2')
+    })
+
+    it('17 anak tangga plus bordes, lubang pelat seluas tapak', () => {
+      expect(buildPieces(u).filter((x) => x.wallId === 'u')).toHaveLength(STAIR_STEPS + 1)
+      expect(slabHoles(u, 'L2', room)).toHaveLength(1)
+    })
+
+    it('pagar tengah: tidak bisa pindah lengan menyamping, tapi bisa naik dari kaki', () => {
+      const segs = walkBlockers(u, 'L1')
+      expect(blocked([3.55, 3.5], segs)).toBe(false) // di tengah lengan kanan, jauh dari pagar
+      const to = move([3.55, 3.5], [2.45, 3.5], segs)
+      expect(to[0]).toBeGreaterThan(3) // tertahan pagar tengah di x = 3
+      expect(move([3.55, 5.2], [3.55, 4.2], segs)[1]).toBeCloseTo(4.2) // masuk dari kaki
+    })
   })
 })

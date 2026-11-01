@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_ROOF, isRoof, roofMesh } from './roof'
+import { DEFAULT_ROOF, exposedRooms, isRoof, roofMesh } from './roof'
 import { emptyProject, type Project } from './project'
 
 // Kotak 8 × 6 m, dinding 3 m.
@@ -50,5 +50,43 @@ describe('atap di volume material', async () => {
     expect(area).toBeCloseTo(48 / Math.cos(Math.PI / 6))
     expect(rows.find((r) => r.item.startsWith('Genteng tanah liat'))!.qty).toBe(Math.ceil(area * 25 * 1.05))
     expect(rows.find((r) => r.item === 'Dinding sopi-sopi')!.qty).toBeCloseTo(2 * (0.5 * 6 * 3 * Math.tan(Math.PI / 6) + 6 * 0.075 * Math.tan(Math.PI / 6)))
+  })
+
+  it('miring (sandar): satu bidang, sisi tinggi bisa dibalik, tinggi = bentang penuh × tan', () => {
+    const shed = roofMesh(p, { ...DEFAULT_ROOF, type: 'sandar', pitch: 45, overhang: 0 })!
+    expect(shed.roof).toHaveLength(2) // satu persegi = dua segitiga
+    expect(shed.ridgeHeight).toBeCloseTo(3 + 6 + 0.075) // bentang 6 m
+    const top = (m: typeof shed) => m.roof.flatMap((t) => t.p).filter((v) => v[1] > 9).map((v) => v[2])
+    const flipped = roofMesh(p, { ...DEFAULT_ROOF, type: 'sandar', pitch: 45, overhang: 0, flip: true })!
+    expect(new Set(top(shed))).not.toEqual(new Set(top(flipped))) // sisi tinggi pindah
+    expect(shed.area).toBeCloseTo(8 * 6 * Math.SQRT2)
+    expect(isRoof({ ...DEFAULT_ROOF, type: 'sandar', flip: true })).toBe(true)
+    expect(isRoof({ ...DEFAULT_ROOF, flip: 'ya' })).toBe(false)
+  })
+
+  it('dak: ruang lantai bawah di luar tapak lantai atas diberi dak, yang di bawah atap tidak', () => {
+    const levels = [
+      { id: 'L1', name: 'Lantai 1', elevation: 0 },
+      { id: 'L2', name: 'Lantai 2', elevation: 3.2 },
+    ]
+    const room = (id: string, x0: number, x1: number, level: string) => ({ id, name: id, level, points: [[x0, 0], [x1, 0], [x1, 6], [x0, 6]] as [number, number][] })
+    const twoLevels: Project = {
+      ...emptyProject(),
+      levels,
+      walls: [...p.walls.map((w) => ({ ...w, level: 'L2' })), ...p.walls.map((w) => ({ ...w, id: w.id + '1', level: 'L1' })), { ...W('e', [8, 0], [12, 0]), level: 'L1' }],
+      rooms: [room('bawah', 0, 8, 'L1'), room('garasi', 8, 12, 'L1'), room('atas', 0, 8, 'L2')],
+    }
+    expect(exposedRooms(twoLevels).map((x) => [x.room.id, x.y])).toEqual([['garasi', 3]])
+  })
+
+  it('roster gevel: 6 bilah di tiap gevel pelana, tidak ada di perisai atau kalau dimatikan', () => {
+    const on = { ...DEFAULT_ROOF, type: 'pelana' as const, vent: true }
+    expect(roofMesh(p, on)!.vents).toHaveLength(12)
+    expect(roofMesh(p, { ...on, vent: false })!.vents).toHaveLength(0)
+    expect(roofMesh(p, { ...on, type: 'perisai' })!.vents).toHaveLength(0)
+    // Bilah ada di bidang gevel (garis as dinding ujung), di bawah bubungan.
+    const m = roofMesh(p, on)!
+    expect(m.vents.every((v) => (Math.abs(v.center[0]) < 1e-9 || Math.abs(v.center[0] - 8) < 1e-9) && v.center[1] < m.ridgeHeight)).toBe(true)
+    expect(isRoof({ ...on, vent: 'ya' })).toBe(false)
   })
 })

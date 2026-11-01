@@ -24,7 +24,8 @@ export type Opening = {
   flipSide?: boolean // membuka ke sisi lain dinding
 }
 
-export type Room = { id: string; name: string; points: Point[]; floor?: FloorKey; level?: string } // tanpa floor = DEFAULT_FLOOR
+// tanpa floor = DEFAULT_FLOOR. offset: beda tinggi lantai ruangan dari elevasi lantainya (m), mis. -0,03 KM, -0,05 teras.
+export type Room = { id: string; name: string; points: Point[]; floor?: FloorKey; level?: string; offset?: number }
 
 // Anotasi gambar: teks bebas (a + text) atau garis ukur manual (a ke b). Hanya di denah, tidak ke 3D.
 export type Note = { id: string; a: Point; b?: Point; text?: string; level?: string }
@@ -326,6 +327,7 @@ export function parseProject(raw: unknown): Project {
     if (typeof r?.id !== 'string' || typeof r.name !== 'string' || !Array.isArray(r.points) || !r.points.every(isPt))
       throw new Error('Data ruangan rusak')
   if (o.rooms.some((r) => r.floor !== undefined && !isFloor(r.floor))) throw new Error('Data material lantai rusak')
+  if (o.rooms.some((r) => r.offset !== undefined && !(typeof r.offset === 'number' && Math.abs(r.offset) <= 1))) throw new Error('Data beda tinggi lantai rusak')
   if ([o.wallFinish, ...o.walls.map((w) => w.finish)].some((f) => f !== undefined && !isWall(f))) throw new Error('Data material dinding rusak')
   // Proyek dari tahap sebelum furnitur belum punya daftar ini.
   const furniture = (o as { furniture?: unknown }).furniture ?? []

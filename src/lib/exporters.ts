@@ -1,6 +1,7 @@
 // Ekspor dan impor di browser. Semua berjalan lokal, tidak ada yang dikirim ke server.
 
-import { planSheets } from './drawing'
+import { workSheets } from './drawing'
+import { elevationSheets, sectionSheets } from './elevation'
 import { finishOf, parseProject, type Project } from './project'
 import { DEFAULT_FLOOR, DEFAULT_WALL, FLOORS, WALLS, type FloorKey, type WallKey } from './materials'
 import { DEFAULT_ROOF, ROOF_MATERIALS, roofMesh } from './roof'
@@ -64,7 +65,7 @@ const NO_PLAN = 'Denah masih kosong. Gambar dinding atau ruangan dulu.'
 
 // Bangunan bertingkat: gambar tiap lantai disusun ke bawah dalam satu PNG.
 export async function exportPng(p: Project, name: string) {
-  const sheets = planSheets(p, name)
+  const sheets = workSheets(p, name)
   if (!sheets.length) throw new Error(NO_PLAN)
   const w = Math.max(...sheets.map((s) => s.width))
   const h = sheets.reduce((sum, s) => sum + s.height, 0)
@@ -89,9 +90,10 @@ export async function exportPng(p: Project, name: string) {
 }
 
 // PDF lewat dialog cetak browser (pilih "Simpan sebagai PDF"): tanpa pustaka tambahan, hasil vektor tajam.
-// Satu halaman per lantai.
+// Satu halaman per gambar: denah tiap lantai, lalu tampak empat sisi dan potongan.
 export function printPlan(p: Project, name: string) {
-  const sheets = planSheets(p, name)
+  const plans = workSheets(p, name)
+  const sheets = plans.length ? [...plans, ...elevationSheets(p, name), ...sectionSheets(p, name)] : []
   if (!sheets.length) throw new Error(NO_PLAN)
   const frame = Object.assign(document.createElement('iframe'), { title: 'Cetak denah' })
   frame.style.cssText = 'position:fixed;width:0;height:0;border:0;visibility:hidden'

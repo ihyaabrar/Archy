@@ -17,11 +17,25 @@ export const CATALOG = {
   sink: { label: 'Wastafel', group: 'Kamar mandi', w: 0.6, d: 0.45, h: 0.85 },
   shower: { label: 'Area shower', group: 'Kamar mandi', w: 0.9, d: 0.9, h: 0.05 },
   bathtub: { label: 'Bak mandi', group: 'Kamar mandi', w: 0.75, d: 1.7, h: 0.55 },
+  vanity: { label: 'Meja rias', group: 'Kamar', w: 1.0, d: 0.45, h: 0.75 },
+  tv: { label: 'Meja TV', group: 'Ruang tamu', w: 1.8, d: 0.45, h: 0.5 },
+  washer: { label: 'Mesin cuci', group: 'Servis', w: 0.6, d: 0.6, h: 0.85 },
+  plant: { label: 'Tanaman pot', group: 'Luar', w: 0.5, d: 0.5, h: 1.2 },
+  // Kanopi: h = tinggi pasang. Sisi belakang (-y) menempel dinding, dua tiang di sisi depan.
+  canopy: { label: 'Kanopi', group: 'Luar', w: 3.0, d: 2.0, h: 2.7 },
+  tree: { label: 'Pohon', group: 'Luar', w: 3.0, d: 3.0, h: 5.0 },
+  car: { label: 'Mobil', group: 'Luar', w: 1.8, d: 4.5, h: 1.5 },
+  column: { label: 'Kolom 30×30', group: 'Struktur', w: 0.3, d: 0.3, h: 3.0 },
   // Tangga naik ke arah -y (sisi "belakang"), 17 anak tangga untuk tinggi antar lantai 3,2 m.
   stairs: { label: 'Tangga lurus', group: 'Struktur', w: 1.0, d: 4.2, h: 3.2 },
+  // Tangga U: naik di separuh kanan dari +y ke bordes di -y, lalu balik di separuh kiri sampai +y.
+  stairsU: { label: 'Tangga U dengan bordes', group: 'Struktur', w: 2.2, d: 3.0, h: 3.2 },
 } as const
 
 export const STAIR_STEPS = 17
+// Tangga U: jumlah anak tangga lengan pertama (sebelum bordes) dan dalam bordes (meter).
+export const U_FIRST = 8
+export const uLanding = (w: number, d: number) => Math.min(w / 2, d / 2)
 
 export type FurnitureKind = keyof typeof CATALOG
 // rot dalam derajat, searah jarum jam di denah. w/d opsional: ukuran khusus, kalau kosong pakai ukuran katalog.
@@ -86,6 +100,51 @@ export function symbol(kind: FurnitureKind, w: number = CATALOG[kind].w, d: numb
         return `M ${-x} ${yy} H ${x}`
       })
       return [outline, ...steps, `M 0 ${y - 0.15} V ${-y + 0.2} M -0.12 ${-y + 0.35} L 0 ${-y + 0.2} L 0.12 ${-y + 0.35}`]
+    }
+    case 'vanity':
+      return [outline, rect(-0.3, -y, 0.3, -y + 0.04), circle(0, y + 0.25, 0.18)]
+    case 'tv':
+      return [outline, rect(-0.6, -y + 0.05, 0.6, -y + 0.1)]
+    case 'washer':
+      return [outline, circle(0, 0.03, 0.2), `M ${-x} ${-y + 0.1} H ${x}`]
+    case 'plant':
+      return [circle(0, 0, Math.min(x, y)), circle(0, 0, Math.min(x, y) * 0.5), `M ${-x * 0.7} 0 H ${x * 0.7} M 0 ${-y * 0.7} V ${y * 0.7}`]
+    case 'tree': {
+      // Tajuk bergelombang dan ranting, sama dengan pohon di lembar tapak.
+      const r = Math.min(x, y)
+      let crown = ''
+      for (let i = 0; i <= 12; i++) {
+        const t = (i / 12) * Math.PI * 2
+        const [px, py] = [Math.cos(t) * r, Math.sin(t) * r]
+        crown += i === 0 ? `M ${px} ${py}` : ` A ${r * 0.32} ${r * 0.32} 0 0 1 ${px} ${py}`
+      }
+      const spokes = [0, 1, 2, 3, 4, 5].map((i) => {
+        const t = (i / 6) * Math.PI * 2 + 0.3
+        return `M 0 0 L ${Math.cos(t) * r * 0.6} ${Math.sin(t) * r * 0.6}`
+      })
+      return [crown, ...spokes, circle(0, 0, 0.08)]
+    }
+    case 'car':
+      return [
+        `M ${-x} ${-y + 0.35} Q ${-x} ${-y} ${-x + 0.35} ${-y} H ${x - 0.35} Q ${x} ${-y} ${x} ${-y + 0.35} V ${y - 0.35} Q ${x} ${y} ${x - 0.35} ${y} H ${-x + 0.35} Q ${-x} ${y} ${-x} ${y - 0.35} Z`,
+        `M ${-x + 0.15} ${-y * 0.4} Q 0 ${-y * 0.52} ${x - 0.15} ${-y * 0.4} L ${x - 0.2} ${y * 0.4} Q 0 ${y * 0.47} ${-x + 0.2} ${y * 0.4} Z`,
+      ]
+    case 'column':
+      return [outline] // diisi hitam (poché) di denah, lihat .furn-col
+    case 'canopy':
+      // Benda di atas kepala: garis putus-putus (lihat .furn-over), silang menandai bidang atap, dua tiang di depan.
+      return [outline, `M ${-x} ${-y} L ${x} ${y} M ${x} ${-y} L ${-x} ${y}`, rect(-x, y - 0.1, -x + 0.1, y), rect(x - 0.1, y - 0.1, x, y)]
+    case 'stairsU': {
+      const L = uLanding(w, d)
+      const run = d - L
+      const n2 = STAIR_STEPS - U_FIRST
+      const treads = [
+        ...Array.from({ length: U_FIRST - 1 }, (_, k) => `M 0 ${y - ((k + 1) * run) / U_FIRST} H ${x}`),
+        ...Array.from({ length: n2 - 1 }, (_, k) => `M ${-x} ${-y + L + ((k + 1) * run) / n2} H 0`),
+      ]
+      // Panah naik: lengan kanan ke bordes, menyeberang, lengan kiri ke puncak.
+      const arrow = `M ${x / 2} ${y - 0.15} V ${-y + L / 2} H ${-x / 2} V ${y - 0.2} M ${-x / 2 - 0.12} ${y - 0.35} L ${-x / 2} ${y - 0.2} L ${-x / 2 + 0.12} ${y - 0.35}`
+      return [outline, `M 0 ${y} V ${-y + L}`, `M ${-x} ${-y + L} H ${x}`, ...treads, arrow]
     }
     case 'bathtub':
       return [outline, `M ${-x + 0.08} ${-y + 0.3} Q ${-x + 0.08} ${y - 0.08} 0 ${y - 0.08} Q ${x - 0.08} ${y - 0.08} ${x - 0.08} ${-y + 0.3} Q ${x - 0.08} ${-y + 0.08} 0 ${-y + 0.08} Q ${-x + 0.08} ${-y + 0.08} ${-x + 0.08} ${-y + 0.3} Z`]

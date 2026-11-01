@@ -11,6 +11,9 @@ export const TONES = {
   white: '#efebe3',
   dark: '#4a4440',
   body: '#d6c8b0',
+  leaf: '#7d8c63',
+  clay: '#a5654a',
+  canopy: '#b9c6c8', // polikarbonat/kaca buram
 } as const
 export type Tone = keyof typeof TONES
 
@@ -81,7 +84,26 @@ export function blocks(kind: FurnitureKind, w: number, d: number, h: number): Bl
     }
     case 'shower':
       return [box(0, 0, 0, w, h, d, 'white')]
+    case 'vanity':
+      return [...table(w, d, h), box(0, h, -z + 0.03, 0.6, 0.8, 0.03, 'white')]
+    case 'tv':
+      return [box(0, 0, 0, w, h, d, 'wood'), box(0, h, -z + 0.08, Math.min(1.25, w - 0.2), 0.72, 0.05, 'dark')]
+    case 'washer':
+      return [box(0, 0, 0, w, h, d, 'white'), box(0, h * 0.35, z, w * 0.55, w * 0.55, 0.02, 'dark')]
+    case 'plant':
+      return [box(0, 0, 0, w * 0.6, 0.4, d * 0.6, 'clay'), box(0, 0.4, 0, w, h - 0.4, d, 'leaf')]
+    case 'tree':
+      // Batang dan dua lapis tajuk.
+      return [box(0, 0, 0, 0.25, h * 0.45, 0.25, 'wood'), box(0, h * 0.35, 0, w * 0.75, h * 0.4, d * 0.75, 'leaf'), box(0, h * 0.6, 0, w * 0.5, h * 0.35, d * 0.5, 'leaf')]
+    case 'car':
+      return [box(0, 0.15, 0, w, h * 0.45, d, 'dark'), box(0, 0.15 + h * 0.45, 0.2, w - 0.2, h * 0.4, d * 0.5, 'canopy')]
+    case 'column':
+      return [box(0, 0, 0, w, h, d, 'white')]
+    case 'canopy':
+      // Atap tipis miring 5 % ke depan di atas tinggi pasang, dua tiang besi di sudut depan.
+      return [box(0, h, 0, w, 0.06, d, 'canopy'), box(-x + 0.05, 0, z - 0.05, 0.08, h, 0.08, 'dark'), box(x - 0.05, 0, z - 0.05, 0.08, h, 0.08, 'dark')]
     case 'stairs':
+    case 'stairsU':
       return [] // dibuat terpisah di mesh.ts (anak tangga mengikuti tinggi antar lantai)
   }
 }

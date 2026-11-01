@@ -3,10 +3,22 @@
 import { useMemo, useRef, useState } from 'react'
 import { NumberField } from './NumberField'
 import { useProject } from '@/lib/store'
-import { DEFAULT_COEF, quantities, toCsv, type Coefficients } from '@/lib/quantities'
+import { DEFAULT_COEF, priceKey, quantities, rowCost, toCsv, totalCost, type Coefficients, type Prices } from '@/lib/quantities'
 import { downloadText } from '@/lib/exporters'
 
 const COEF_KEY = 'denahin:koefisien'
+const PRICE_KEY = 'denahin:harga'
+
+// Harga satuan juga preferensi di browser ini: berlaku untuk semua proyek, bisa beda per daerah.
+function loadPrices(): Prices {
+  try {
+    const raw = JSON.parse(localStorage.getItem(PRICE_KEY) ?? 'null')
+    return raw && typeof raw === 'object' ? (Object.fromEntries(Object.entries(raw).filter(([, v]) => typeof v === 'number' && v >= 0)) as Prices) : {}
+  } catch {
+    return {}
+  }
+}
+const rupiah = (n: number) => 'Rp ' + Math.round(n).toLocaleString('id-ID')
 
 // Koefisien disimpan di browser ini sebagai preferensi pengguna (bukan bagian denah).
 function loadCoef(): Coefficients {
@@ -46,7 +58,18 @@ function QuantitiesPanel({ close }: { close: () => void }) {
   const project = useProject((s) => s.project)
   const name = useProject((s) => (s.shared ? 'Denah kiriman' : (s.projects.find((m) => m.id === s.currentId)?.name ?? 'Denah')))
   const [coef, setCoefState] = useState(loadCoef)
+  const [prices, setPricesState] = useState(loadPrices)
+  const setPrice = (key: string, v: number) => {
+    const next = { ...prices }
+    if (v > 0) next[key] = v
+    else delete next[key]
+    setPricesState(next)
+    try {
+      localStorage.setItem(PRICE_KEY, JSON.stringify(next))
+    } catch {}
+  }
   const rows = useMemo(() => quantities(project, coef), [project, coef])
+  const total = totalCost(rows, prices)
   const levels = [...new Set(rows.map((r) => r.level))]
 
   const setCoef = (patch: Partial<Coefficients>) => {
@@ -80,6 +103,12 @@ function QuantitiesPanel({ close }: { close: () => void }) {
                     Jumlah
                   </th>
                   <th scope="col">Satuan</th>
+                  <th scope="col" className="num">
+                    Harga satuan (Rp)
+                  </th>
+                  <th scope="col" className="num">
+                    Jumlah harga
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -93,12 +122,33 @@ function QuantitiesPanel({ close }: { close: () => void }) {
                       </td>
                       <td className="num">{fmt(r.qty)}</td>
                       <td>{r.unit}</td>
+                      <td className="num">
+                        <input
+                          className="qty-price"
+                          type="number"
+                          inputMode="decimal"
+                          min={0}
+                          aria-label={`Harga satuan ${r.item} per ${r.unit}`}
+                          defaultValue={prices[priceKey(r)] ?? ''}
+                          onBlur={(e) => setPrice(priceKey(r), Number(e.target.value) || 0)}
+                        />
+                      </td>
+                      <td className="num">{prices[priceKey(r)] ? rupiah(rowCost(r, prices)) : '–'}</td>
                     </tr>
                   ))}
               </tbody>
             </table>
           ))}
-          <button className="btn btn-accent" onClick={() => downloadText(`${name} volume material.csv`, toCsv(rows), 'text/csv')}>
+          <p className="qty-total">
+            {total > 0 ? (
+              <>
+                Perkiraan biaya material: <strong>{rupiah(total)}</strong>
+              </>
+            ) : (
+              <span className="muted">Isi harga satuan dari daftar harga daerah Anda untuk menghitung perkiraan biaya material.</span>
+            )}
+          </p>
+          <button className="btn btn-accent" onClick={() => downloadText(`${name} volume material.csv`, toCsv(rows, prices), 'text/csv')}>
             Unduh CSV untuk RAB
           </button>
           <p className="muted">CSV memakai pemisah titik koma dan desimal koma, jadi langsung terbaca di Excel berbahasa Indonesia.</p>

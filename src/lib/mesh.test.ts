@@ -38,4 +38,17 @@ describe('buildPieces', () => {
     expect(p.rotY).toBeCloseTo(-Math.PI / 2)
     expect(p.center).toEqual([0, 1.5, 2])
   })
+
+  it('sudut L tertutup: ujung dinding diperpanjang setengah tebal dinding yang ditemui, ujung bebas tidak', () => {
+    const b: Wall = { id: 'w2', a: [4, 0], b: [4, 3], thickness: 0.2, height: 3 }
+    const [p1, p2] = buildPieces({ ...emptyProject(), walls: [wall, b] })
+    expect(p1.size[0]).toBeCloseTo(4 + 0.1) // ujung (4,0) bertemu dinding 20 cm
+    expect(p1.center[0]).toBeCloseTo(2.05)
+    expect(p2.size[0]).toBeCloseTo(3 + 0.075) // ujung (4,0) bertemu dinding 15 cm, ujung (4,3) bebas
+  })
+
+  it('dinding segaris tidak diperpanjang (sisi berimpit akan berkedip)', () => {
+    const c: Wall = { id: 'w2', a: [4, 0], b: [8, 0], thickness: 0.15, height: 3 }
+    expect(buildPieces({ ...emptyProject(), walls: [wall, c] }).map((x) => x.size[0])).toEqual([4, 4])
+  })
 })

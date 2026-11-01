@@ -1,8 +1,9 @@
 // Tangga yang menghubungkan dua lantai: lubang pelat lantai atas dan jalur naik saat room tour.
-// Tangga lurus di katalog: kaki di sisi +y lokal, puncak di sisi -y lokal (sama dengan susunan anak tangga di mesh.ts).
+// Tangga lurus: kaki di sisi +y lokal, puncak di sisi -y lokal (sama dengan susunan anak tangga di mesh.ts).
+// Tangga U: kaki di +y separuh kanan, bordes di -y, puncak di +y separuh kiri.
 
 import { elevationOf, levelOf, levelsOf, onLevel, type Point, type Project } from './project'
-import { dims, footprint, type Furniture } from './furniture'
+import { STAIR_STEPS, U_FIRST, dims, footprint, toPlan, uLanding, type Furniture } from './furniture'
 import { BODY_RADIUS, blockers, inPolygon, type Segment } from './walk'
 
 // Satu tangga dari lantai `from` ke lantai tepat di atasnya `to`.
@@ -19,7 +20,7 @@ export function levelAbove(p: Project, id: string): string | null {
 // Tangga yang punya lantai di atasnya. Tangga di lantai teratas tetap furnitur biasa.
 export function flights(p: Project): Flight[] {
   return p.furniture.flatMap((f) => {
-    if (f.kind !== 'stairs') return []
+    if (f.kind !== 'stairs' && f.kind !== 'stairsU') return []
     const from = levelOf(p, f)
     const to = levelAbove(p, from)
     return to ? [{ f, from, to, corners: footprint(f) }] : []
@@ -35,7 +36,13 @@ export function stairProgress(fl: Flight, pt: Point): number | null {
   const x = dx * Math.cos(r) + dy * Math.sin(r)
   const y = -dx * Math.sin(r) + dy * Math.cos(r)
   if (Math.abs(x) > w / 2 || Math.abs(y) > d / 2) return null
-  return (d / 2 - y) / d
+  if (fl.f.kind !== 'stairsU') return (d / 2 - y) / d
+  // Tangga U: tinggi mengikuti jumlah anak tangga yang sudah dilewati. Bordes datar setinggi akhir lengan pertama.
+  const L = uLanding(w, d)
+  const first = U_FIRST / STAIR_STEPS
+  const along = (y - (-d / 2 + L)) / (d - L) // 0 di tepi bordes, 1 di sisi +y
+  if (along <= 0) return first
+  return x >= 0 ? first * (1 - along) : first + (1 - first) * along
 }
 
 // Lubang di pelat ruangan lantai `level`: tapak tangga dari lantai bawah yang seluruhnya di dalam ruangan itu.
@@ -54,7 +61,17 @@ export function walkBlockers(p: Project, level: string): Segment[] {
   const out = blockers({ ...part, furniture: part.furniture.filter((f) => !ids.has(f.id)) })
   // half negatif: badan boleh mendekat sampai 5 cm dari pagar, supaya tangga 1 m tetap bisa dilewati (radius badan 0,25 m).
   const rail = (a: Point, b: Point): Segment => ({ a, b, half: 0.05 - BODY_RADIUS })
-  for (const { from, to, corners: c } of fl) {
+  for (const { f, from, to, corners: c } of fl) {
+    if (f.kind === 'stairsU') {
+      // Pagar keliling kecuali tempat naik (kaki, separuh kanan sisi +y) di lantai bawah dan tempat tiba (separuh kiri) di lantai atas,
+      // plus pagar tengah di antara dua lengan supaya tidak melompat dari lengan satu ke lengan lain.
+      const { w, d } = dims(f)
+      const at = (x: number, y: number) => toPlan(f, [x, y])
+      if (from !== level && to !== level) continue
+      out.push(rail(c[1], c[2]), rail(c[3], c[0]), rail(c[0], c[1]), rail(at(0, d / 2), at(0, -d / 2 + uLanding(w, d))))
+      out.push(from === level ? rail(at(0, d / 2), c[3]) : rail(c[2], at(0, d / 2)))
+      continue
+    }
     if (from === level || to === level) out.push(rail(c[1], c[2]), rail(c[3], c[0]))
     if (to === level) out.push(rail(c[2], c[3]))
   }
