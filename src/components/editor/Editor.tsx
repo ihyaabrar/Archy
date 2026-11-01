@@ -9,6 +9,7 @@ import { DrawingsButton } from './DrawingsDialog'
 import { AccountButton } from './AccountDialog'
 import Link from 'next/link'
 import { adoptShared, discardStoredProject, leaveShared, useProject } from '@/lib/store'
+import { openUnderlay } from '@/lib/underlay'
 import { FIRST_LEVEL, addLevel, levelsOf, uid, type Point } from '@/lib/project'
 import { type FurnitureKind } from '@/lib/furniture'
 import { Inspector, FurniturePicker } from './Inspector'
@@ -35,6 +36,9 @@ export function Editor() {
   const [draft, setDraft] = useState<Point[]>([])
   const [view, setView] = useState<View>({ tx: 80, ty: 80, s: 50 })
   const [furnitureKind, setFurnitureKind] = useState<FurnitureKind>('bed2')
+  // Gambar latar jiplak milik proyek yang sedang dibuka (denah kiriman tidak punya).
+  const currentId = useProject((s) => (s.shared ? null : s.currentId))
+  useEffect(() => openUnderlay(currentId), [currentId])
   const [placeRot, setPlaceRot] = useState(0)
   // Lantai aktif. Kalau lantainya dihapus atau pindah proyek, kembali ke lantai pertama.
   const rawLevels = useProject((s) => s.project.levels)

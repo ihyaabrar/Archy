@@ -5,8 +5,10 @@
 import { useState } from 'react'
 import { type Selection } from './PlanCanvas'
 import { NumberField } from './NumberField'
+import { calibrate, readImage, setUnderlay, useUnderlay } from '@/lib/underlay'
+import { inPolygon } from '@/lib/walk'
 import { useProject } from '@/lib/store'
-import { dist, finishOf, levelsOf, onLevel, polygonArea, removeLevel, splitWall, uid, wallLength } from '@/lib/project'
+import { curveWall, dist, finishOf, levelsOf, onLevel, polygonArea, removeLevel, splitWall, uid, wallLength, type Point, type Wall } from '@/lib/project'
 import { CATALOG, GROUPS, dims, type FurnitureKind } from '@/lib/furniture'
 import { newRoomShapes } from '@/lib/rooms'
 import { DOOR_STYLES, WINDOW_STYLES, styleOf, type OpeningStyle } from '@/lib/openings'
@@ -36,6 +38,7 @@ export function Inspector({ selection, onDelete, onSelect, level }: { selection:
         <p className="muted">Pilih elemen dengan alat Pilih (V) untuk mengubah ukurannya. Material lantai diatur per ruangan.</p>
         <DetectRooms level={level} />
         <LevelSettings level={level} />
+        <UnderlayPanel />
         <Swatches
           legend="Material dinding bangunan"
           options={Object.entries(WALLS).map(([k, v]) => ({ key: k, label: v.label, color: v.base }))}
@@ -65,7 +68,10 @@ export function Inspector({ selection, onDelete, onSelect, level }: { selection:
       <aside className="inspector" aria-label="Properti anotasi">
         <h2 className="stencil">{n.b ? 'Garis ukur' : 'Catatan'}</h2>
         {n.b ? (
-          <p className="muted">Panjang {dist(n.a, n.b).toFixed(2)} m</p>
+          <>
+            <p className="muted">Panjang {dist(n.a, n.b).toFixed(2)} m</p>
+            <Calibrate a={n.a} b={n.b} />
+          </>
         ) : (
           <label className="field">
             <span>Isi</span>
@@ -160,6 +166,7 @@ export function Inspector({ selection, onDelete, onSelect, level }: { selection:
             Duplikat
           </button>
         </div>
+        <CurveWall w={w} />
         <Swatches
           legend="Material dinding ini"
           options={Object.entries(WALLS).map(([k, v]) => ({ key: k, label: v.label, color: v.base }))}
@@ -250,6 +257,101 @@ export function Inspector({ selection, onDelete, onSelect, level }: { selection:
       />
       {del}
     </aside>
+  )
+}
+
+// Dinding lengkung dari dinding lurus: lengkung = jarak puncak busur ke garis lurus (positif ke kiri arah gambar).
+function CurveWall({ w }: { w: Wall }) {
+  const apply = useProject((s) => s.apply)
+  const openings = useProject((s) => s.project.openings.filter((o) => o.wallId === w.id).length)
+  const rooms = useProject((s) => s.project.rooms)
+  const len = wallLength(w)
+  // Bawaan melengkung keluar: kalau puncak busur ke kiri jatuh di dalam ruangan, balik ke kanan.
+  const [sag, setSag] = useState(() => {
+    const s = +(len / 4).toFixed(2)
+    const apex: Point = [(w.a[0] + w.b[0]) / 2 - ((w.b[1] - w.a[1]) / len) * s, (w.a[1] + w.b[1]) / 2 + ((w.b[0] - w.a[0]) / len) * s]
+    return rooms.some((r) => inPolygon(apex, r.points)) ? -s : s
+  })
+  if (len < 0.2) return null
+  return (
+    <fieldset className="picker">
+      <legend>Lengkungkan</legend>
+      <NumberField label="Lengkung (m, minus = ke sisi lain)" value={sag} min={-len / 2} max={len / 2} onCommit={setSag} />
+      <button
+        className="btn"
+        onClick={() =>
+          (!openings || confirm(`Pintu/jendela di dinding ini (${openings}) akan dihapus. Lanjutkan?`)) && apply((p) => curveWall(p, w.id, sag) ?? p)
+        }
+      >
+        Jadikan dinding lengkung
+      </button>
+      <p className="muted">Busur tersusun dari 12 potongan lurus; lengkung paling besar setengah panjang dinding (setengah lingkaran).</p>
+    </fieldset>
+  )
+}
+
+// Gambar latar untuk dijiplak: foto atau scan denah lama di bawah gambar, tidak ikut proyek.
+function UnderlayPanel() {
+  const u = useUnderlay((s) => s.underlay)
+  const projectId = useUnderlay((s) => s.projectId)
+  const error = useUnderlay((s) => s.error)
+  const [msg, setMsg] = useState<string | null>(null)
+  if (!projectId) return null
+  const pick = async (file?: File) => {
+    if (!file) return
+    try {
+      const { src, aspect } = await readImage(file)
+      setUnderlay({ src, aspect, x: 0, y: 0, width: 10, opacity: 0.5 })
+      setMsg('Gambar dipasang selebar 10 m. Tarik garis dengan alat Ukur (M) di atas ukuran yang Anda tahu, lalu kalibrasi dari garis itu.')
+    } catch (e) {
+      setMsg((e as Error).message)
+    }
+  }
+  return (
+    <fieldset className="picker">
+      <legend>Latar untuk dijiplak</legend>
+      {!u ? (
+        <label className="btn">
+          Pasang foto atau scan denah
+          <input type="file" accept="image/*" hidden onChange={(e) => pick(e.target.files?.[0])} />
+        </label>
+      ) : (
+        <>
+          <NumberField label="Lebar gambar (m)" value={+u.width.toFixed(2)} min={0.5} max={500} onCommit={(v) => setUnderlay({ ...u, width: v })} />
+          <NumberField label="Geser x (m)" value={+u.x.toFixed(2)} min={-500} max={500} onCommit={(v) => setUnderlay({ ...u, x: v })} />
+          <NumberField label="Geser y (m)" value={+u.y.toFixed(2)} min={-500} max={500} onCommit={(v) => setUnderlay({ ...u, y: v })} />
+          <label className="field">
+            <span>Transparansi</span>
+            <input type="range" min={0.1} max={1} step={0.05} value={u.opacity} onChange={(e) => setUnderlay({ ...u, opacity: Number(e.target.value) })} />
+          </label>
+          <label className="check">
+            <input type="checkbox" checked={!u.hidden} onChange={(e) => setUnderlay({ ...u, hidden: !e.target.checked || undefined })} />
+            Tampilkan latar
+          </label>
+          <button className="btn btn-danger" onClick={() => confirm('Lepas gambar latar dari proyek ini?') && setUnderlay(null)}>
+            Lepas gambar latar
+          </button>
+        </>
+      )}
+      {(error ?? msg) && <p className={error ? 'field-error' : 'muted'}>{error ?? msg}</p>}
+      <p className="muted">Gambar latar hanya tersimpan di browser ini, tidak ikut tautan bagikan atau file proyek.</p>
+    </fieldset>
+  )
+}
+
+// Kalibrasi skala gambar latar dari garis ukur: garis ini sebenarnya sepanjang N meter.
+function Calibrate({ a, b }: { a: Point; b: Point }) {
+  const u = useUnderlay((s) => s.underlay)
+  const [m, setM] = useState(() => +dist(a, b).toFixed(2))
+  if (!u) return null
+  return (
+    <fieldset className="picker">
+      <legend>Kalibrasi gambar latar</legend>
+      <NumberField label="Panjang sebenarnya (m)" value={m} min={0.05} max={500} onCommit={setM} />
+      <button className="btn" onClick={() => setUnderlay(calibrate(u, a, b, m))}>
+        Skalakan latar supaya garis ini {m} m
+      </button>
+    </fieldset>
   )
 }
 

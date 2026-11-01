@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_ROOF, footprintRects, roofMesh } from './roof'
+import { DEFAULT_ROOF, footprintRects, isRoof, roofMesh, roofWings } from './roof'
 import { emptyProject, type Point, type Project } from './project'
 
 const loop = (pts: Point[]): Project => ({
@@ -46,5 +46,19 @@ describe('atap denah L/T', () => {
 
   it('dinding miring: kembali ke kotak luar', () => {
     expect(footprintRects(loop([[0, 0], [6, 0], [8, 4], [0, 4]]).walls)).toBeNull()
+  })
+
+  it('atap per sayap: sayap kiri perisai, sayap atas tetap pelana', () => {
+    const wings = roofWings(L)
+    expect(wings.map((w) => [w.w, w.d])).toEqual(expect.arrayContaining([[10, 4], [4, 10]]))
+    const left = wings.find((w) => w.d === 10)!.key
+    const mixed = roofMesh(L, { ...pel, wings: { [left]: { type: 'perisai' } } })!
+    // Sayap kiri jadi perisai: gevelnya hilang, gevel sayap atas tetap (3 segitiga per gevel).
+    const all = roofMesh(L, pel)!.gables.length
+    expect(mixed.gables.length).toBeGreaterThan(0)
+    expect(mixed.gables.length).toBeLessThan(all)
+    expect(mixed.gables.length % 3).toBe(0)
+    expect(mixed.area).toBeCloseTo(64 / Math.cos(Math.PI / 6)) // luas tetap: kemiringan sama
+    expect(isRoof({ ...pel, wings: { [left]: { type: 'datar' } } })).toBe(false)
   })
 })

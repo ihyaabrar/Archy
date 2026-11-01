@@ -8,6 +8,7 @@ import { dims, type Furniture, type FurnitureKind } from '@/lib/furniture'
 import { Dimension, FurnitureShape, NoteShape, OpeningShape, RoomLabel, WallShape } from './PlanShapes'
 import { DEFAULT_FLOOR, FLOORS } from '@/lib/materials'
 import { nudge } from './editActions'
+import { useUnderlay } from '@/lib/underlay'
 
 export type Tool = 'select' | 'wall' | 'door' | 'window' | 'room' | 'furniture' | 'text' | 'measure'
 export type Selection = { kind: 'wall' | 'opening' | 'room' | 'furniture' | 'note'; id: string } | null
@@ -473,6 +474,7 @@ export function PlanCanvas({ tool, view, setView, selection, setSelection, draft
     }
   }
 
+  const underlay = useUnderlay((s) => s.underlay)
   return (
     <>
       <p id="kanvas-bantuan" className="sr-only">
@@ -517,6 +519,18 @@ export function PlanCanvas({ tool, view, setView, selection, setSelection, draft
         <rect width="100%" height="100%" fill="url(#grid-major)" />
 
         <g transform={`translate(${view.tx} ${view.ty}) scale(${view.s})`}>
+          {underlay && !underlay.hidden && (
+            <image
+              href={underlay.src}
+              x={underlay.x}
+              y={underlay.y}
+              width={underlay.width}
+              height={underlay.width * underlay.aspect}
+              opacity={underlay.opacity}
+              preserveAspectRatio="none"
+              pointerEvents="none"
+            />
+          )}
           {shown.rooms.map((r) => (
             <g key={r.id} onPointerDown={selectOn({ kind: 'room', id: r.id })}>
               <polygon

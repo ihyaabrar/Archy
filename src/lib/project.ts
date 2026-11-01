@@ -267,6 +267,49 @@ export function splitWall(p: Project, id: string, t: number): { project: Project
 }
 
 
+// Dinding lengkung: dinding lurus diganti busur lewat kedua ujungnya dengan lengkung `sag` (jarak tengah busur ke garis lurus,
+// positif ke kiri arah a→b), tersusun dari `n` potongan lurus. Tepi ruangan yang berimpit dinding ini ikut jadi busur.
+// Bukaan di dinding ini dibuang, karena posisinya tidak lagi berarti di potongan pendek.
+export function curveWall(p: Project, id: string, sag: number, n = 12): Project | null {
+  const w = p.walls.find((x) => x.id === id)
+  const len = w ? wallLength(w) : 0
+  if (!w || len < 0.2 || Math.abs(sag) < 0.01 || Math.abs(sag) > len / 2) return null
+  const [ux, uy] = [(w.b[0] - w.a[0]) / len, (w.b[1] - w.a[1]) / len]
+  const [nx, ny] = [-uy, ux] // kiri arah a→b
+  const r = (sag * sag + (len / 2) ** 2) / (2 * Math.abs(sag)) // jari-jari busur
+  const mid: Point = [(w.a[0] + w.b[0]) / 2, (w.a[1] + w.b[1]) / 2]
+  const sign = Math.sign(sag)
+  const center: Point = [mid[0] - nx * sign * (r - Math.abs(sag)), mid[1] - ny * sign * (r - Math.abs(sag))]
+  const t0 = Math.atan2(w.a[1] - center[1], w.a[0] - center[0])
+  // Busur paling banyak setengah lingkaran (|sag| ≤ len/2): sudut pusat θ, arah putar dipilih yang tengahnya di puncak busur.
+  const theta = 2 * Math.asin(Math.min(1, len / 2 / r))
+  const apex: Point = [mid[0] + nx * sag, mid[1] + ny * sag]
+  const at = (t: number): Point => [center[0] + Math.cos(t) * r, center[1] + Math.sin(t) * r]
+  const off = (q: Point) => Math.hypot(q[0] - apex[0], q[1] - apex[1])
+  const sweep = off(at(t0 + theta / 2)) < off(at(t0 - theta / 2)) ? theta : -theta
+  const pts: Point[] = Array.from({ length: n + 1 }, (_, i) => {
+    if (i === 0) return w.a
+    if (i === n) return w.b
+    const q = at(t0 + (sweep * i) / n)
+    return [round(q[0], 0.001), round(q[1], 0.001)]
+  })
+  const segs = pts.slice(1).map((b, i) => ({ ...w, id: i ? uid() : w.id, a: pts[i], b }))
+  const same = (q: Point, z: Point) => Math.abs(q[0] - z[0]) < 1e-6 && Math.abs(q[1] - z[1]) < 1e-6
+  const level = levelOf(p, w)
+  const rooms = p.rooms.map((room) => {
+    if (levelOf(p, room) !== level) return room
+    const k = room.points.length
+    for (let i = 0; i < k; i++) {
+      const [q, z] = [room.points[i], room.points[(i + 1) % k]]
+      const inner = pts.slice(1, -1)
+      if (same(q, w.a) && same(z, w.b)) return { ...room, points: [...room.points.slice(0, i + 1), ...inner, ...room.points.slice(i + 1)] }
+      if (same(q, w.b) && same(z, w.a)) return { ...room, points: [...room.points.slice(0, i + 1), ...[...inner].reverse(), ...room.points.slice(i + 1)] }
+    }
+    return room
+  })
+  return { ...p, walls: p.walls.flatMap((x) => (x.id === id ? segs : [x])), openings: p.openings.filter((o) => o.wallId !== id), rooms }
+}
+
 export const moveNote = (n: Note, d: Point): Note => (n.b ? { ...n, a: shift(n.a, d), b: shift(n.b, d) } : { ...n, a: shift(n.a, d) })
 
 // Salinan elemen (dinding beserta bukaannya, ruangan, atau furnitur) bergeser d dari aslinya.

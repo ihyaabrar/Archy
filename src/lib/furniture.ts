@@ -26,11 +26,16 @@ export const CATALOG = {
   tree: { label: 'Pohon', group: 'Luar', w: 3.0, d: 3.0, h: 5.0 },
   car: { label: 'Mobil', group: 'Luar', w: 1.8, d: 4.5, h: 1.5 },
   column: { label: 'Kolom 30×30', group: 'Struktur', w: 0.3, d: 0.3, h: 3.0 },
+  // Balok: h = tinggi sisi atas (di bawah pelat), tinggi badan balok 40 cm. Panjang = lebar w.
+  beam: { label: 'Balok 20×40', group: 'Struktur', w: 4.0, d: 0.2, h: 3.0 },
   // Tangga naik ke arah -y (sisi "belakang"), 17 anak tangga untuk tinggi antar lantai 3,2 m.
   stairs: { label: 'Tangga lurus', group: 'Struktur', w: 1.0, d: 4.2, h: 3.2 },
   // Tangga U: naik di separuh kanan dari +y ke bordes di -y, lalu balik di separuh kiri sampai +y.
   stairsU: { label: 'Tangga U dengan bordes', group: 'Struktur', w: 2.2, d: 3.0, h: 3.2 },
 } as const
+
+// Benda di atas kepala: digambar putus-putus tanpa isi di denah, dan bisa dilewati saat room tour.
+export const OVERHEAD: FurnitureKind[] = ['canopy', 'beam']
 
 export const STAIR_STEPS = 17
 // Tangga U: jumlah anak tangga lengan pertama (sebelum bordes) dan dalam bordes (meter).
@@ -131,6 +136,8 @@ export function symbol(kind: FurnitureKind, w: number = CATALOG[kind].w, d: numb
       ]
     case 'column':
       return [outline] // diisi hitam (poché) di denah, lihat .furn-col
+    case 'beam':
+      return [outline, `M ${-x} 0 H ${x}`]
     case 'canopy':
       // Benda di atas kepala: garis putus-putus (lihat .furn-over), silang menandai bidang atap, dua tiang di depan.
       return [outline, `M ${-x} ${-y} L ${x} ${y} M ${x} ${-y} L ${-x} ${y}`, rect(-x, y - 0.1, -x + 0.1, y), rect(x - 0.1, y - 0.1, x, y)]

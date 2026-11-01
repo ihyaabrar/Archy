@@ -9,8 +9,10 @@ import { inPolygon } from './walk'
 export type RoofType = 'datar' | 'pelana' | 'perisai' | 'sandar'
 export type RoofMaterial = 'genteng' | 'metal' | 'beton'
 // flip: atap sandar (miring satu arah) dibalik, sisi tinggi pindah ke seberang.
-// vent: lubang angin (roster) di tengah tiap gevel.
-export type Roof = { type: RoofType; pitch: number; overhang: number; material: RoofMaterial; ridge: 'auto' | 'putar'; flip?: boolean; vent?: boolean }
+// Pengaturan atap satu sayap (bagian denah L/T/U); yang kosong ikut atap utama.
+export type WingRoof = { type?: Exclude<RoofType, 'datar'>; ridge?: 'auto' | 'putar'; flip?: boolean }
+// vent: lubang angin (roster) di tengah tiap gevel. wings: pengaturan per sayap, kunci = wingKey(persegi sayap).
+export type Roof = { type: RoofType; pitch: number; overhang: number; material: RoofMaterial; ridge: 'auto' | 'putar'; flip?: boolean; vent?: boolean; wings?: Record<string, WingRoof> }
 
 export const DEFAULT_ROOF: Roof = { type: 'datar', pitch: 30, overhang: 0.6, material: 'genteng', ridge: 'auto' }
 export const ROOF_LABELS: Record<RoofType, string> = { datar: 'Datar', pelana: 'Pelana', perisai: 'Perisai', sandar: 'Miring' }
@@ -27,6 +29,15 @@ export const isRoof = (r: unknown): r is Roof => {
     ['datar', 'pelana', 'perisai', 'sandar'].includes(o.type) &&
     (o.flip === undefined || typeof o.flip === 'boolean') &&
     (o.vent === undefined || typeof o.vent === 'boolean') &&
+    (o.wings === undefined ||
+      (typeof o.wings === 'object' &&
+        Object.values(o.wings).every(
+          (w) =>
+            !!w &&
+            (w.type === undefined || ['pelana', 'perisai', 'sandar'].includes(w.type)) &&
+            (w.ridge === undefined || ['auto', 'putar'].includes(w.ridge)) &&
+            (w.flip === undefined || typeof w.flip === 'boolean'),
+        ))) &&
     ['genteng', 'metal', 'beton'].includes(o.material) &&
     ['auto', 'putar'].includes(o.ridge) &&
     o.pitch >= 5 &&
@@ -122,12 +133,21 @@ export function roofBase(p: Project) {
 }
 
 // Sayap: persegi dengan arah bubungannya. a = sepanjang bubungan, c = melintang; cut = ujung yang masuk ke sayap lain.
-type Wing = { a0: number; a1: number; c0: number; c1: number; alongX: boolean; cut: [boolean, boolean] }
+type Wing = { a0: number; a1: number; c0: number; c1: number; alongX: boolean; cut: [boolean, boolean]; key: string }
+
+// Kunci stabil sayap atap: persegi tapaknya (berubah hanya kalau dinding lantai teratas berubah).
+export const wingKey = (q: Rect) => [q.x0, q.z0, q.x1, q.z1].map((v) => v.toFixed(2)).join(',')
 
 const wingOf = (b: Rect, flip: boolean): Wing => {
   const alongX = (b.x1 - b.x0 >= b.z1 - b.z0) !== flip
   const [a0, a1, c0, c1] = alongX ? [b.x0, b.x1, b.z0, b.z1] : [b.z0, b.z1, b.x0, b.x1]
-  return { a0, a1, c0, c1, alongX, cut: [false, false] }
+  return { a0, a1, c0, c1, alongX, cut: [false, false], key: wingKey(b) }
+}
+
+// Sayap atap yang bisa diatur sendiri-sendiri (untuk panel atap). Kosong untuk atap datar.
+export function roofWings(p: Project) {
+  const b = roofBase(p)
+  return (b?.rects ?? []).filter((q) => q.x1 - q.x0 >= 0.5 && q.z1 - q.z0 >= 0.5).map((q) => ({ key: wingKey(q), w: q.x1 - q.x0, d: q.z1 - q.z0 }))
 }
 const span = (w: Wing) => w.c1 - w.c0
 // Batas sayap pada sumbu dunia x (x = true) atau z.
@@ -181,14 +201,14 @@ function unionArea(rs: Rect[]) {
 export function roofMesh(p: Project, r: Roof): RoofMesh | null {
   const b = roofBase(p)
   if (!b || r.type === 'datar' || b.x1 - b.x0 < 0.5 || b.z1 - b.z0 < 0.5) return null
-  const wings = joinWings(b.rects.filter((q) => q.x1 - q.x0 >= 0.5 && q.z1 - q.z0 >= 0.5).map((q) => wingOf(q, r.ridge === 'putar')))
+  const own = (key: string) => ({ ...r, ...r.wings?.[key] }) // pengaturan sayap, sisanya ikut atap utama
+  const wings = joinWings(b.rects.filter((q) => q.x1 - q.x0 >= 0.5 && q.z1 - q.z0 >= 0.5).map((q) => wingOf(q, own(wingKey(q)).ridge === 'putar')))
   const t = Math.tan((r.pitch * Math.PI) / 180)
   const o = r.overhang
   // Bidang atap melewati tepi luar puncak dinding (bukan garis as), supaya puncak dinding tidak menembus genteng.
   const H = b.height + (b.thickness / 2) * t
   const W = b.height // puncak dinding: alas sopi-sopi
   const eaveY = H - o * t
-  const hip = r.type === 'perisai'
   const roof: Tri[] = []
   const gables: Tri[] = []
   const vents: Slat[] = []
@@ -206,6 +226,8 @@ export function roofMesh(p: Project, r: Roof): RoofMesh | null {
 
   for (const w of wings) {
     const { a0, a1, c0, c1, cut } = w
+    const wr = own(w.key)
+    const hip = wr.type === 'perisai'
     const toW = (a: number, y: number, c: number): V3 => (w.alongX ? [a, y, c] : [c, y, a])
     const half = (c1 - c0) / 2
     const cm = (c0 + c1) / 2
@@ -220,9 +242,9 @@ export function roofMesh(p: Project, r: Roof): RoofMesh | null {
     const r1 = hip1 ? a1 - Math.min(half, room) : A1
     const ry = H + Math.min(half, room) * t
     ridgeHeight = Math.max(ridgeHeight, ry)
-    if (r.type === 'sandar') {
+    if (wr.type === 'sandar') {
       // Satu bidang dari lis rendah ke sisi tinggi. Bidang melewati tepi luar puncak dinding sisi rendah.
-      const [lo, hi] = r.flip ? [c0, c1] : [c1, c0]
+      const [lo, hi] = wr.flip ? [c0, c1] : [c1, c0]
       const dir = Math.sign(hi - lo) // arah naik di sumbu melintang
       const yAt = (c: number) => H + (c - lo) * dir * t
       const A0s = a0 - o

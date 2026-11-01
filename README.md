@@ -17,7 +17,7 @@
   <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-5-2a2420?logo=typescript&logoColor=white">
   <img alt="three.js" src="https://img.shields.io/badge/three.js-0.187-2a2420?logo=threedotjs&logoColor=white">
   <img alt="Supabase" src="https://img.shields.io/badge/Supabase-opsional-2a2420?logo=supabase&logoColor=white">
-  <img alt="Vitest" src="https://img.shields.io/badge/tes-127%20lolos-a8401a?logo=vitest&logoColor=white">
+  <img alt="Vitest" src="https://img.shields.io/badge/tes-131%20lolos-a8401a?logo=vitest&logoColor=white">
   <img alt="Lisensi MIT" src="https://img.shields.io/badge/lisensi-MIT-2a2420">
 </p>
 
@@ -64,20 +64,21 @@ Tombol "Buka contoh ini di editor" menyalinnya jadi proyek Anda sendiri.
 ## Fitur
 
 **Menggambar**
-- Dinding dengan snap grid, kunci sudut 45°, dan sambungan otomatis. Dinding bisa dipindah, dipecah, dan diduplikasi.
+- Dinding dengan snap grid, kunci sudut 45°, dan sambungan otomatis. Dinding bisa dipindah, dipecah, diduplikasi, dan dilengkungkan (tepi ruangan ikut melengkung).
 - Pintu (ayun, ganda, geser) dan jendela (buka, mati, nako) yang menempel di dinding.
 - Ruangan dari klik titik atau deteksi otomatis dari dinding tertutup. Luas dihitung langsung.
-- Furnitur dari katalog ukuran umum Indonesia: kasur, lemari, meja rias, sofa, meja TV, meja makan, kitchen set, kulkas, mesin cuci, kloset, bathtub, tanaman pot, pohon, mobil, kanopi bertiang, dan kolom struktur.
+- Furnitur dari katalog ukuran umum Indonesia: kasur, lemari, meja rias, sofa, meja TV, meja makan, kitchen set, kulkas, mesin cuci, kloset, bathtub, tanaman pot, pohon, mobil, kanopi bertiang, serta kolom dan balok struktur.
 - Beda tinggi lantai per ruangan (misalnya KM −0,03, teras −0,05), tampil sebagai peil di denah dan di 3D.
 - Tangga lurus atau tangga U dengan bordes. Tangga melubangi pelat lantai di atasnya dan bisa dinaiki saat room tour.
 - Banyak lantai dengan elevasi sendiri.
 - Anotasi teks dan garis ukur manual.
+- Foto atau scan denah lama sebagai latar untuk dijiplak, dengan kalibrasi skala dari garis ukur.
 - Bisa dipakai penuh dengan keyboard: `[` dan `]` untuk berpindah elemen, panah untuk menggeser, Enter untuk menaruh titik.
 
 **3D dan room tour**
 - Bangunan 3D dari denah yang sama, dibuat dengan three.js tanpa file model.
 - Material lantai (keramik, parket, teraso, beton) dan dinding (cat, bata ekspos, beton ekspos).
-- Atap datar, pelana, perisai, atau miring satu arah (arah dan sisi tinggi bisa diatur), dengan pilihan roster di gevel, termasuk denah bentuk L dan T. Ruang lantai bawah yang tidak tertutup lantai atas otomatis diberi dak beton.
+- Atap datar, pelana, perisai, atau miring satu arah (arah dan sisi tinggi bisa diatur), dengan pilihan roster di gevel dan bentuk berbeda untuk tiap bagian denah L/T/U, termasuk denah bentuk L dan T. Ruang lantai bawah yang tidak tertutup lantai atas otomatis diberi dak beton.
 - Matahari sesuai jam (06.00 sampai 21.00) dengan bayangan, dan lampu ruangan untuk malam hari.
 - Jalan di dalam bangunan dengan WASD, panah, atau tombol sentuh. Dinding tidak bisa ditembus, pintu bisa dilewati, dan tangga bisa dinaiki.
 - Tur otomatis per ruangan yang urutannya bisa diatur.
@@ -108,7 +109,7 @@ Tombol "Buka contoh ini di editor" menyalinnya jadi proyek Anda sendiri.
 | 3D | [three.js](https://threejs.org) lewat [React Three Fiber](https://r3f.docs.pmnd.rs) dan drei | Geometri dibuat dari data denah, tekstur digambar dengan kode |
 | Gambar 2D | SVG yang dibangkitkan sendiri | Layar, PNG, PDF, dan lembar kerja memakai modul geometri yang sama |
 | Akun dan cloud | [Supabase](https://supabase.com) (Auth + Postgres dengan RLS) | Opsional; hanya kunci publishable di browser |
-| Tes | [Vitest](https://vitest.dev), Testing Library, jsdom | 127 tes untuk geometri, atap, tangga, ekspor, dan editor |
+| Tes | [Vitest](https://vitest.dev), Testing Library, jsdom | 131 tes untuk geometri, atap, tangga, ekspor, dan editor |
 | Huruf | IBM Plex Sans/Mono, Stardos Stencil, Big Shoulders Stencil | Huruf teknik untuk angka, stensil untuk lettering gambar kerja |
 
 ## Cara kerja

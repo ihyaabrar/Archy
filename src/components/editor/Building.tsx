@@ -8,7 +8,7 @@ import { SHARE_PREFIX, encodeProject } from '@/lib/share'
 import { tourStop } from '@/lib/walk'
 import { onLevel } from '@/lib/project'
 import { moveInTour, setInTour, tourRooms } from '@/lib/presentation'
-import { DEFAULT_ROOF, ROOF_LABELS, ROOF_MATERIALS, type Roof, type RoofMaterial, type RoofType } from '@/lib/roof'
+import { DEFAULT_ROOF, ROOF_LABELS, ROOF_MATERIALS, roofWings, type Roof, type RoofMaterial, type RoofType, type WingRoof } from '@/lib/roof'
 import { NumberField } from './NumberField'
 import { Guard3D } from '@/components/view3d/Guard3D'
 
@@ -284,12 +284,57 @@ function RoofSettings() {
               Balik sisi tinggi
             </button>
           )}
+          <WingRoofs roof={roof} set={set} />
           <p className="muted">
             Atap mengikuti tapak dinding lantai teratas; denah L atau T dapat sayap atap sendiri. Ruang lantai bawah yang tidak tertutup lantai atas diberi dak
             beton.
           </p>
         </>
       )}
+    </fieldset>
+  )
+}
+
+// Atap per bagian untuk denah L/T/U: tiap sayap bisa beda bentuk dan arah; yang tidak diatur ikut atap utama.
+function WingRoofs({ roof, set }: { roof: Roof; set: (patch: Partial<Roof>) => void }) {
+  const project = useProject((s) => s.project)
+  const wings = useMemo(() => roofWings(project), [project])
+  if (wings.length < 2) return null
+  const setWing = (key: string, patch: WingRoof) => set({ wings: { ...roof.wings, [key]: { ...roof.wings?.[key], ...patch } } })
+  return (
+    <fieldset className="picker">
+      <legend>Atap per bagian</legend>
+      {wings.map(({ key, w, d }, i) => {
+        const own = roof.wings?.[key] ?? {}
+        const type = own.type ?? roof.type
+        return (
+          <div key={key} className="wing-roof">
+            <p>
+              Bagian {i + 1} <span className="muted">({w.toFixed(1)} × {d.toFixed(1)} m)</span>
+            </p>
+            <div className="segmented roof-types" role="group" aria-label={`Bentuk atap bagian ${i + 1}`}>
+              {(['pelana', 'perisai', 'sandar'] as const).map((t) => (
+                <button key={t} className="tool" aria-pressed={type === t} onClick={() => setWing(key, { type: t })}>
+                  {ROOF_LABELS[t]}
+                </button>
+              ))}
+            </div>
+            <div className="tour-buttons">
+              <button className="link-btn" onClick={() => setWing(key, { ridge: (own.ridge ?? roof.ridge) === 'putar' ? 'auto' : 'putar' })}>
+                Putar arah
+              </button>
+              {type === 'sandar' && (
+                <button className="link-btn" onClick={() => setWing(key, { flip: !(own.flip ?? roof.flip) })}>
+                  Balik sisi tinggi
+                </button>
+              )}
+            </div>
+          </div>
+        )
+      })}
+      <button className="link-btn" onClick={() => set({ wings: undefined })}>
+        Samakan semua bagian dengan atap utama
+      </button>
     </fieldset>
   )
 }

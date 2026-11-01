@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   clampOpening,
+  curveWall,
+  type Point,
   emptyProject,
   addLevel,
   elevationOf,
@@ -137,5 +139,23 @@ describe('riwayat', () => {
     const room = { id: 'r', name: 'KM', points: [[0, 0], [2, 0], [2, 2]] as [number, number][] }
     expect(parseProject({ ...emptyProject(), rooms: [{ ...room, offset: -0.03 }] }).rooms[0].offset).toBe(-0.03)
     expect(() => parseProject({ ...emptyProject(), rooms: [{ ...room, offset: 5 }] })).toThrow('beda tinggi')
+  })
+
+  it('dinding lengkung: busur lewat kedua ujung, puncak di jarak lengkung, tepi ruangan ikut melengkung', () => {
+    const wall = { id: 'w', a: [0, 0] as Point, b: [4, 0] as Point, thickness: 0.15, height: 3 }
+    const room = { id: 'r', name: 'R', points: [[0, 0], [4, 0], [4, 3], [0, 3]] as Point[] }
+    const p = { ...emptyProject(), walls: [wall], rooms: [room], openings: [{ id: 'o', wallId: 'w', at: 2, width: 1, kind: 'door' as const, sill: 0, height: 2.1 }] }
+    for (const sag of [1, -1]) {
+      const c = curveWall(p, 'w', sag, 8)!
+      expect(c.walls).toHaveLength(8)
+      expect(c.walls[0].a).toEqual([0, 0])
+      expect(c.walls[7].b).toEqual([4, 0])
+      expect(c.walls[3].b[0]).toBeCloseTo(2)
+      expect(c.walls[3].b[1]).toBeCloseTo(sag) // titik tengah = puncak busur, di sisi kiri arah a→b untuk sag positif
+      expect(c.openings).toHaveLength(0)
+      expect(c.rooms[0].points).toHaveLength(4 + 7)
+    }
+    expect(curveWall(p, 'w', 3)).toBeNull() // lebih dari setengah lingkaran
+    expect(curveWall(p, 'tidak-ada', 1)).toBeNull()
   })
 })

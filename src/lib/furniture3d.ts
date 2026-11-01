@@ -99,6 +99,8 @@ export function blocks(kind: FurnitureKind, w: number, d: number, h: number): Bl
       return [box(0, 0.15, 0, w, h * 0.45, d, 'dark'), box(0, 0.15 + h * 0.45, 0.2, w - 0.2, h * 0.4, d * 0.5, 'canopy')]
     case 'column':
       return [box(0, 0, 0, w, h, d, 'white')]
+    case 'beam':
+      return [box(0, h - 0.4, 0, w, 0.4, d, 'white')]
     case 'canopy':
       // Atap tipis miring 5 % ke depan di atas tinggi pasang, dua tiang besi di sudut depan.
       return [box(0, h, 0, w, 0.06, d, 'canopy'), box(-x + 0.05, 0, z - 0.05, 0.08, h, 0.08, 'dark'), box(x - 0.05, 0, z - 0.05, 0.08, h, 0.08, 'dark')]

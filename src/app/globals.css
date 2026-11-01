@@ -564,3 +564,5 @@ body {
 /* Harga satuan RAB: input sempit rata kanan di tabel volume. */
 .qty-price { width: 7.5rem; min-height: 36px; padding: 0 0.4rem; text-align: right; font-family: var(--font-plex-mono); border: 1px solid var(--grid-major); background: var(--paper); }
 .qty-total { font-size: 1.05rem; }
+/* Atap per bagian: satu blok per sayap, dipisah garis tipis. */
+.wing-roof { display: flex; flex-direction: column; gap: 0.35rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--grid-major); }

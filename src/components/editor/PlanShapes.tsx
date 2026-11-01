@@ -3,7 +3,7 @@
 import { type PointerEvent as RPointerEvent } from 'react'
 import { centroid, dist, polygonArea, type Opening, type Point, type Room, type Note, type Wall } from '@/lib/project'
 import { dimensionLabel, openingSymbol, wallPolygons } from '@/lib/drawing'
-import { dims, symbol, type Furniture } from '@/lib/furniture'
+import { OVERHEAD, dims, symbol, type Furniture } from '@/lib/furniture'
 
 export function WallShape({ wall, openings, selected, onDown }: { wall: Wall; openings: Opening[]; selected: boolean; onDown: (e: RPointerEvent) => void }) {
   return (
@@ -36,7 +36,7 @@ export function FurnitureShape({ f, selected, ghost, onDown }: { f: Furniture; s
   const { w, d } = dims(f)
   return (
     <g
-      className={`furn ${f.kind === 'canopy' ? 'furn-over' : ''} ${f.kind === 'column' ? 'furn-col' : ''} ${f.kind === 'tree' ? 'furn-tree' : ''} ${selected ? 'furn-sel' : ''} ${ghost ? 'furn-ghost' : ''}`}
+      className={`furn ${OVERHEAD.includes(f.kind) ? 'furn-over' : ''} ${f.kind === 'column' ? 'furn-col' : ''} ${f.kind === 'tree' ? 'furn-tree' : ''} ${selected ? 'furn-sel' : ''} ${ghost ? 'furn-ghost' : ''}`}
       transform={`translate(${f.pos[0]} ${f.pos[1]}) rotate(${f.rot})`}
       onPointerDown={onDown}
     >

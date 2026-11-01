@@ -3,7 +3,7 @@
 
 import { centroid, dist, levelsOf, onLevel, pointAlong, polygonArea, wallLength, wallSpans, type Opening, type Point, type Project, type Wall } from './project'
 import { distToSegment, inPolygon, roomAt } from './walk'
-import { dims, symbol } from './furniture'
+import { OVERHEAD, dims, symbol } from './furniture'
 import { DEFAULT_FLOOR, FLOORS } from './materials'
 
 // Poligon tiap bagian padat dinding.
@@ -68,8 +68,8 @@ function planBody(p: Project, sheet = false) {
     out.push(
       // Kanopi ada di atas kepala: tanpa isi dan putus-putus, lantai di bawahnya tetap terlihat.
       // Kolom struktur diisi hitam (poché) seperti dinding; pohon tanpa latar supaya rumput di bawahnya terlihat.
-      `<g transform='translate(${f.pos[0]} ${f.pos[1]}) rotate(${f.rot})'>${f.kind === 'canopy' || f.kind === 'tree' ? '' : `<rect x='${-fw / 2}' y='${-fd / 2}' width='${fw}' height='${fd}' fill='${f.kind === 'column' ? INK : '#f3eee3'}'/>`}` +
-        symbol(f.kind, fw, fd).map((d) => `<path d='${d}' fill='none' stroke='${PENCIL}' stroke-width='0.015'${f.kind === 'canopy' ? " stroke-dasharray='0.15 0.08'" : ''}/>`).join('') +
+      `<g transform='translate(${f.pos[0]} ${f.pos[1]}) rotate(${f.rot})'>${OVERHEAD.includes(f.kind) || f.kind === 'tree' ? '' : `<rect x='${-fw / 2}' y='${-fd / 2}' width='${fw}' height='${fd}' fill='${f.kind === 'column' ? INK : '#f3eee3'}'/>`}` +
+        symbol(f.kind, fw, fd).map((d) => `<path d='${d}' fill='none' stroke='${PENCIL}' stroke-width='0.015'${OVERHEAD.includes(f.kind) ? " stroke-dasharray='0.15 0.08'" : ''}/>`).join('') +
         '</g>',
     )
   }
