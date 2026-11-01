@@ -38,6 +38,8 @@ function translate(m: string) {
   if (/email not confirmed/i.test(m)) return 'Email belum dikonfirmasi. Buka tautan di email pendaftaran dulu.'
   if (/already registered/i.test(m)) return 'Email ini sudah terdaftar. Silakan masuk.'
   if (/password should be at least/i.test(m)) return 'Kata sandi minimal 6 karakter.'
+  if (/same.*password|different from the old/i.test(m)) return 'Kata sandi baru harus berbeda dari yang lama.'
+  if (/auth session missing|session.*expired|invalid.*(token|link)/i.test(m)) return 'Tautan atur ulang sudah kedaluwarsa atau sudah dipakai. Minta tautan baru.'
   if (/rate limit/i.test(m)) return 'Terlalu banyak percobaan. Tunggu beberapa menit lalu coba lagi.'
   if (/could not find the table|relation .* does not exist/i.test(m))
     return 'Penyimpanan cloud belum disiapkan (skema database belum diterapkan). Proyek tetap aman di browser ini.'
@@ -54,6 +56,16 @@ export async function signUp(email: string, password: string) {
 export async function signIn(email: string, password: string) {
   const { error } = await supabase()!.auth.signInWithPassword({ email, password })
   fail(error)
+}
+
+// Kirim email atur ulang sandi. Alamat tujuan harus terdaftar di Supabase (Auth > URL Configuration > Redirect URLs).
+export async function resetPassword(email: string) {
+  fail((await supabase()!.auth.resetPasswordForEmail(email, { redirectTo: `${location.origin}/masuk/atur-sandi` })).error)
+}
+
+// Dipakai di halaman atur-sandi: sesi pemulihan sudah dibuat supabase-js dari tautan email.
+export async function updatePassword(password: string) {
+  fail((await supabase()!.auth.updateUser({ password })).error)
 }
 
 export async function signOut() {

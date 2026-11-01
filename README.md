@@ -1,36 +1,58 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Denahin
 
-## Getting Started
+Aplikasi web untuk arsitek: gambar denah 2D, lihat jadi bangunan 3D, berjalan di dalamnya, lalu bagikan ke klien.
 
-First, run the development server:
+## Fitur
+
+- Editor denah 2D: dinding, pintu, jendela, ruangan, furnitur, ukuran otomatis, banyak lantai.
+- Tampilan 3D (three.js): material lantai/dinding/atap, matahari dan bayangan, atap pelana/perisai.
+- Room tour: berjalan di dalam bangunan (keyboard atau tombol sentuh), tur per ruangan.
+- Presentasi scroll untuk klien di `/presentasi`.
+- Ekspor PNG, PDF (cetak 1:100), GLB, file proyek, dan volume material (CSV untuk RAB).
+- Penyimpanan di browser; akun opsional untuk sinkron cloud (Supabase).
+
+## Menjalankan
+
+Butuh Node.js 22 atau lebih baru.
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Buka http://localhost:3000.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+| Perintah | Kegunaan |
+|---|---|
+| `npm run dev` | Server pengembangan |
+| `npm run build` | Build produksi |
+| `npm test` | Tes (vitest) |
+| `npm run lint` | ESLint |
+| `npm run db:apply` | Terapkan `supabase/schema.sql` ke database |
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Halaman
 
-## Learn More
+| Alamat | Isi |
+|---|---|
+| `/` | Daftar proyek di perangkat ini (dan di cloud kalau masuk) |
+| `/proyek/[id]` | Editor; `/proyek/kiriman#denah=...` untuk denah dari tautan bagikan |
+| `/masuk` | Masuk, daftar, lupa kata sandi |
+| `/presentasi#nama=...&denah=...` | Presentasi scroll |
 
-To learn more about Next.js, take a look at the following resources:
+## Akun dan cloud (opsional)
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Tanpa konfigurasi ini Denahin tetap berjalan; proyek disimpan di browser.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+1. Hubungkan proyek Vercel dan Supabase: `vercel link`, lalu `vercel integration add supabase`.
+2. Tarik env: `vercel env pull .env.local --yes`.
+3. Unduh sertifikat CA dari dashboard Supabase (Database Settings, SSL Configuration), simpan sebagai `supabase/ca.crt`.
+4. Terapkan skema: `npm run db:apply`. Tabel `projects` memakai Row Level Security per pemilik.
+5. Di Supabase (Auth, URL Configuration), tambahkan alamat situs ke Redirect URLs, termasuk `/masuk/atur-sandi` untuk lupa kata sandi.
 
-## Deploy on Vercel
+Hanya kunci publishable yang dipakai di browser. Jangan pernah memakai service role key di kode klien.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Struktur
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- `src/lib/`: logika tanpa UI (model data, geometri, 3D, ekspor, volume, penyimpanan), semuanya dites.
+- `src/components/`: editor, tampilan 3D, dashboard, akun, presentasi.
+- `PLAN.md`: rencana dan status tahap. `DESIGN.md`: arah desain visual.

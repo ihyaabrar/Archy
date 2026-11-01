@@ -1,8 +1,8 @@
 // Ekspor dan impor di browser. Semua berjalan lokal, tidak ada yang dikirim ke server.
 
 import { planSheets } from './drawing'
-import { parseProject, type Project } from './project'
-import { DEFAULT_FLOOR, DEFAULT_WALL, FLOORS, WALLS, type FloorKey } from './materials'
+import { finishOf, parseProject, type Project } from './project'
+import { DEFAULT_FLOOR, DEFAULT_WALL, FLOORS, WALLS, type FloorKey, type WallKey } from './materials'
 import { DEFAULT_ROOF, ROOF_MATERIALS, roofMesh } from './roof'
 
 const slug = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'denah'
@@ -23,18 +23,41 @@ export function exportProjectFile(p: Project, name: string) {
 }
 
 // File dari pengguna tidak dipercaya: batasi ukuran dan validasi isinya.
-export async function importProjectFile(file: File): Promise<{ project: Project; name: string }> {
-  if (file.size > 5_000_000) throw new Error('File terlalu besar untuk sebuah denah (maksimal 5 MB)')
+export type Imported = { project: Project; name: string; id?: string } // id asli, hanya dari file cadangan
+
+const BACKUP_KIND = 'denahin-cadangan'
+
+const cleanName = (n: unknown, fallback: string) => (typeof n === 'string' && n.trim() ? n.trim().slice(0, 60) : fallback)
+
+// Menerima file satu proyek (.denahin.json) maupun file cadangan berisi banyak proyek.
+export async function importProjectFile(file: File): Promise<Imported[]> {
+  if (file.size > 30_000_000) throw new Error('File terlalu besar (maksimal 30 MB)')
   let data: unknown
   try {
     data = JSON.parse(await file.text())
   } catch {
     throw new Error('File ini bukan file proyek Denahin')
   }
-  const o = data as { name?: unknown; project?: unknown }
-  const project = parseProject(o?.project ?? data)
-  const name = typeof o?.name === 'string' && o.name.trim() ? o.name.trim().slice(0, 60) : file.name.replace(/\.denahin\.json$|\.json$/i, '')
-  return { project, name }
+  const o = data as { kind?: unknown; name?: unknown; project?: unknown; projects?: unknown }
+  if (o?.kind === BACKUP_KIND) {
+    if (!Array.isArray(o.projects) || !o.projects.length) throw new Error('File cadangan ini kosong')
+    return o.projects.map((x: { name?: unknown; project?: unknown; id?: unknown }, i: number) => ({
+      project: parseProject(x?.project),
+      name: cleanName(x?.name, `Proyek ${i + 1}`),
+      ...(typeof x?.id === 'string' && { id: x.id }),
+    }))
+  }
+  if (file.size > 5_000_000) throw new Error('File terlalu besar untuk sebuah denah (maksimal 5 MB)')
+  return [{ project: parseProject(o?.project ?? data), name: cleanName(o?.name, file.name.replace(/\.denahin\.json$|\.json$/i, '')) }]
+}
+
+// Satu file berisi semua proyek, untuk cadangan atau pindah browser/perangkat.
+export function backupJson(items: Imported[]) {
+  return JSON.stringify({ kind: BACKUP_KIND, version: 1, exportedAt: new Date().toISOString(), projects: items })
+}
+
+export function exportBackup(items: Imported[]) {
+  download(new Blob([backupJson(items)], { type: 'application/json' }), `denahin-cadangan-${new Date().toISOString().slice(0, 10)}.json`)
 }
 
 const NO_PLAN = 'Denah masih kosong. Gambar dinding atau ruangan dulu.'
@@ -93,18 +116,26 @@ export async function exportGlb(p: Project, name: string) {
   ])
   const scene = new THREE.Scene()
   // Material GLB memakai warna dasar saja (tanpa tekstur kanvas) supaya file tetap kecil; nama material = nama finishing.
-  const wall = WALLS[p.wallFinish ?? DEFAULT_WALL]
-  const wallMat = new THREE.MeshStandardMaterial({ color: wall.base, name: `Dinding ${wall.label}` })
+  const wallMats = new Map<string, InstanceType<typeof THREE.MeshStandardMaterial>>()
+  const wallMat = (key: WallKey) => {
+    if (!wallMats.has(key)) wallMats.set(key, new THREE.MeshStandardMaterial({ color: WALLS[key].base, name: `Dinding ${WALLS[key].label}` }))
+    return wallMats.get(key)!
+  }
+  const finishes = new Map(p.walls.map((w) => [w.id, finishOf(p, w)]))
   const glassMat = new THREE.MeshStandardMaterial({ color: '#9fb7bf', transparent: true, opacity: 0.35, name: 'Kaca' })
   const floorMats = new Map<string, InstanceType<typeof THREE.MeshStandardMaterial>>()
   const floorMat = (key: FloorKey) => {
     if (!floorMats.has(key)) floorMats.set(key, new THREE.MeshStandardMaterial({ color: FLOORS[key].base, side: THREE.DoubleSide, name: `Lantai ${FLOORS[key].label}` }))
     return floorMats.get(key)!
   }
-  const furnMat = new THREE.MeshStandardMaterial({ color: '#d6c8b0', name: 'Furnitur' })
+  const furnMats = new Map<string, InstanceType<typeof THREE.MeshStandardMaterial>>()
+  const furnMat = (color = '#d6c8b0') => {
+    if (!furnMats.has(color)) furnMats.set(color, new THREE.MeshStandardMaterial({ color, name: `Furnitur ${color}` }))
+    return furnMats.get(color)!
+  }
   const doorMat = new THREE.MeshStandardMaterial({ color: '#9c7652', name: 'Daun pintu' })
   for (const piece of buildPieces(p)) {
-    const mat = piece.kind === 'glass' ? glassMat : piece.kind === 'furniture' ? furnMat : piece.kind === 'door' ? doorMat : wallMat
+    const mat = piece.kind === 'glass' ? glassMat : piece.kind === 'furniture' ? furnMat(piece.color) : piece.kind === 'door' ? doorMat : wallMat(finishes.get(piece.wallId) ?? DEFAULT_WALL)
     const m = new THREE.Mesh(new THREE.BoxGeometry(...piece.size), mat)
     m.position.set(...piece.center)
     m.rotation.y = piece.rotY
@@ -130,7 +161,7 @@ export async function exportGlb(p: Project, name: string) {
     }
     const rm = ROOF_MATERIALS[(p.roof ?? DEFAULT_ROOF).material]
     mk(roof.roof, rm.base, `Atap ${rm.label}`)
-    if (roof.gables.length) mk(roof.gables, wall.base, 'Dinding sopi-sopi')
+    if (roof.gables.length) mk(roof.gables, WALLS[p.wallFinish ?? DEFAULT_WALL].base, 'Dinding sopi-sopi')
   }
   const glb = (await new GLTFExporter().parseAsync(scene, { binary: true })) as ArrayBuffer
   download(new Blob([glb], { type: 'model/gltf-binary' }), `${slug(name)}.glb`)

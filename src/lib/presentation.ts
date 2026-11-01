@@ -49,9 +49,31 @@ export function keyframes(p: Project): Key[] {
   return [top, overview, ...rooms, overview]
 }
 
-// Tur dari lantai terbawah ke atas; di dalam satu lantai mengikuti urutan ruangan digambar.
-function roomsInOrder(p: Project) {
-  return [...p.rooms].sort((a, b) => elevationOf(p, levelOf(p, a)) - elevationOf(p, levelOf(p, b)))
+// Semua ruangan dalam urutan presentasi. Bawaan: dari lantai terbawah ke atas, di dalam satu lantai sesuai urutan digambar.
+// Urutan pilihan pengguna (tour.order) didahulukan; ruangan baru yang belum tercantum ikut di belakang dengan urutan bawaan.
+export function tourRooms(p: Project): Room[] {
+  const byLevel = [...p.rooms].sort((a, b) => elevationOf(p, levelOf(p, a)) - elevationOf(p, levelOf(p, b)))
+  const order = p.tour?.order ?? []
+  const rank = (r: Room) => (order.includes(r.id) ? order.indexOf(r.id) : order.length + byLevel.indexOf(r))
+  return byLevel.sort((a, b) => rank(a) - rank(b))
+}
+
+// Ruangan yang tampil di presentasi.
+const roomsInOrder = (p: Project) => tourRooms(p).filter((r) => !p.tour?.hidden.includes(r.id))
+
+// Pindahkan ruangan satu langkah di urutan presentasi (by = -1 naik, +1 turun).
+export function moveInTour(p: Project, id: string, by: -1 | 1): Project {
+  const ids = tourRooms(p).map((r) => r.id)
+  const i = ids.indexOf(id)
+  const j = i + by
+  if (i < 0 || j < 0 || j >= ids.length) return p
+  ;[ids[i], ids[j]] = [ids[j], ids[i]]
+  return { ...p, tour: { order: ids, hidden: p.tour?.hidden ?? [] } }
+}
+
+export function setInTour(p: Project, id: string, shown: boolean): Project {
+  const hidden = (p.tour?.hidden ?? []).filter((x) => x !== id)
+  return { ...p, tour: { order: p.tour?.order ?? [], hidden: shown ? hidden : [...hidden, id] } }
 }
 
 const smooth = (f: number) => f * f * (3 - 2 * f)

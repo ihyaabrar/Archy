@@ -9,19 +9,20 @@ const p: Project = { ...emptyProject(), walls: [W('a', [0, 0], [8, 0]), W('b', [
 describe('atap', () => {
   it('pelana: bubungan sejajar sisi panjang, tinggi = setengah bentang × tan(kemiringan)', () => {
     const m = roofMesh(p, { ...DEFAULT_ROOF, type: 'pelana', pitch: 45, overhang: 0 })!
-    expect(m.ridgeHeight).toBeCloseTo(3 + 3)
-    expect(m.gables).toHaveLength(2)
+    // Bidang atap diangkat setengah tebal dinding × tan: 0,075 m pada 45°.
+    expect(m.ridgeHeight).toBeCloseTo(3 + 3 + 0.075)
+    expect(m.gables).toHaveLength(6) // dua sopi-sopi, masing-masing 3 segitiga
     // Tanpa teritisan: 2 bidang × 8 m × sisi miring 3√2.
     expect(m.area).toBeCloseTo(2 * 8 * 3 * Math.SQRT2)
-    const ridgeYs = m.roof.flatMap((t) => t.p).filter((v) => v[1] > 5.9)
-    expect(ridgeYs.every((v) => v[2] === 3)).toBe(true) // bubungan di z = 3 (tengah sisi pendek)
+    const ridgeYs = m.roof.flatMap((t) => t.p).filter((v) => v[1] > 5.99)
+    expect(ridgeYs.every((v) => Math.abs(v[2] - 3) < 1e-9)).toBe(true) // bubungan di z = 3 (tengah sisi pendek)
   })
 
   it('teritisan turun mengikuti kemiringan; bubungan bisa diputar', () => {
     const m = roofMesh(p, { ...DEFAULT_ROOF, type: 'pelana', pitch: 45, overhang: 0.5 })!
-    expect(Math.min(...m.roof.flatMap((t) => t.p.map((v) => v[1])))).toBeCloseTo(2.5)
+    expect(Math.min(...m.roof.flatMap((t) => t.p.map((v) => v[1])))).toBeCloseTo(2.575)
     const rot = roofMesh(p, { ...DEFAULT_ROOF, type: 'pelana', pitch: 45, overhang: 0, ridge: 'putar' })!
-    expect(rot.ridgeHeight).toBeCloseTo(3 + 4) // bentang 8 m: lebih tinggi
+    expect(rot.ridgeHeight).toBeCloseTo(3 + 4 + 0.075) // bentang 8 m: lebih tinggi
   })
 
   it('perisai: empat bidang, luas sama dengan pelana berkemiringan sama (tanpa teritisan)', () => {
@@ -48,6 +49,6 @@ describe('atap di volume material', async () => {
     const area = rows.find((r) => r.item.startsWith('Luas bidang atap'))!.qty
     expect(area).toBeCloseTo(48 / Math.cos(Math.PI / 6))
     expect(rows.find((r) => r.item.startsWith('Genteng tanah liat'))!.qty).toBe(Math.ceil(area * 25 * 1.05))
-    expect(rows.find((r) => r.item === 'Dinding sopi-sopi')!.qty).toBeCloseTo(2 * (0.5 * 6 * 3 * Math.tan(Math.PI / 6)))
+    expect(rows.find((r) => r.item === 'Dinding sopi-sopi')!.qty).toBeCloseTo(2 * (0.5 * 6 * 3 * Math.tan(Math.PI / 6) + 6 * 0.075 * Math.tan(Math.PI / 6)))
   })
 })

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { CATALOG, footprint, symbol, type Furniture } from './furniture'
 import { emptyProject, parseProject } from './project'
 import { buildPieces } from './mesh'
-import { blocked, blockers, move } from './walk'
+import { blocked, blockers, inPolygon, move } from './walk'
 import { planSvg } from './drawing'
 import { FLOORS } from './materials'
 
@@ -26,8 +26,12 @@ describe('furnitur', () => {
 
   it('muncul di 3D, menghalangi jalan, dan ikut ekspor', () => {
     const p = { ...emptyProject(), furniture: [bed], rooms: [{ id: 'r', name: 'Kamar', points: [[0, 0], [4, 0], [4, 4], [0, 4]] as [number, number][] }] }
-    const piece = buildPieces(p).find((x) => x.kind === 'furniture')!
-    expect(piece.size).toEqual([1.6, 0.5, 2.0])
+    // Kasur: rangka, kasur, kepala kasur, dua bantal. Rangka seluas tapak, tidak ada balok di luar tapak.
+    const pieces = buildPieces(p).filter((x) => x.kind === 'furniture')
+    expect(pieces).toHaveLength(5)
+    expect(pieces[0].size[0]).toBeCloseTo(1.6)
+    expect(pieces[0].size[2]).toBeCloseTo(2.0)
+    for (const pc of pieces) expect(inPolygon([pc.center[0], pc.center[2]], footprint(bed))).toBe(true)
     const segs = blockers(p)
     expect(blocked([2, 2], segs)).toBe(true) // di atas kasur
     expect(blocked([2, 1.0], segs)).toBe(true) // terlalu dekat tepi kasur (y 1,2)

@@ -2,13 +2,13 @@
 
 import { centroid, pointAlong, wallSpans, type Point, type Project, type Room } from './project'
 import { CATALOG, footprint } from './furniture'
-import { doorLeaf } from './mesh'
+import { doorLeaves } from './openings'
 
 export const EYE = 1.6
 export const BODY_RADIUS = 0.25
 
 // half = setengah tebal dinding. area = bidang padat (furnitur): titik di dalamnya juga terhalang.
-type Segment = { a: Point; b: Point; half: number; area?: Point[] }
+export type Segment = { a: Point; b: Point; half: number; area?: Point[] }
 
 // Bagian yang menghalangi: dinding padat dan jendela. Pintu bisa dilewati.
 export function blockers(p: Project): Segment[] {
@@ -23,7 +23,7 @@ export function blockers(p: Project): Segment[] {
   // Daun pintu yang terbuka juga benda padat.
   for (const o of p.openings) {
     const w = p.walls.find((x) => x.id === o.wallId)
-    if (o.kind === 'door' && w) out.push({ ...doorLeaf(o, w), half: 0.02 })
+    if (w) for (const leaf of doorLeaves(o, w)) out.push({ ...leaf, half: 0.02 })
   }
   // Furnitur setinggi lutut ke atas menghalangi; alas shower yang rata bisa diinjak.
   for (const f of p.furniture) {
@@ -45,7 +45,7 @@ function distToSegment(p: Point, s: Segment) {
 export const blocked = (p: Point, segs: Segment[], r = BODY_RADIUS) =>
   segs.some((s) => distToSegment(p, s) < s.half + r || (s.area && inPolygon(p, s.area)))
 
-function inPolygon(p: Point, poly: Point[]) {
+export function inPolygon(p: Point, poly: Point[]) {
   let inside = false
   for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
     const [xi, yi] = poly[i]

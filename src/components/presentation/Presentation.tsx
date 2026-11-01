@@ -3,10 +3,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
+import { Guard3D } from '@/components/view3d/Guard3D'
 import { decodeProject, SHARE_PREFIX } from '@/lib/share'
 import { chapters, type Chapter } from '@/lib/presentation'
 import { planSheets } from '@/lib/drawing'
-import { polygonArea, type Project } from '@/lib/project'
+import { finishOf, polygonArea, type Project } from '@/lib/project'
 import { WALLS, DEFAULT_WALL } from '@/lib/materials'
 
 const PresentationScene = dynamic(() => import('@/components/view3d/PresentationScene'), { ssr: false })
@@ -55,7 +56,7 @@ export function Presentation() {
       <main className="state-screen">
         <h1 className="stencil">{state.name}</h1>
         <p>Denah ini belum punya dinding, jadi belum ada bangunan untuk dipresentasikan.</p>
-        <Link className="btn btn-accent btn-link" href={`/${SHARE_PREFIX}${state.code}`}>
+        <Link className="btn btn-accent btn-link" href={`/proyek/kiriman${SHARE_PREFIX}${state.code}`}>
           Buka denah di editor
         </Link>
       </main>
@@ -90,7 +91,9 @@ function Story({ project, name, code }: { project: Project; name: string; code: 
 
   return (
     <main className="present" ref={rootRef}>
-      <PresentationScene project={project} progressRef={progress} reduce={reduce} />
+      <Guard3D>
+        <PresentationScene project={project} progressRef={progress} reduce={reduce} />
+      </Guard3D>
       {list.map((c, i) => (
         <section key={i} className={`present-step present-${c.kind}`} aria-labelledby={`bab-${i}`}>
           <ChapterCard c={c} i={i} name={name} total={total} roomCount={project.rooms.length} plan={plan?.svg} project={project} code={code} />
@@ -147,7 +150,7 @@ function ChapterCard({
           <dt>Tinggi dinding</dt>
           <dd>{maxH.toFixed(2)} m</dd>
           <dt>Dinding</dt>
-          <dd>{WALLS[project.wallFinish ?? DEFAULT_WALL].label}</dd>
+          <dd>{[...new Set(project.walls.length ? project.walls.map((w) => finishOf(project, w)) : [project.wallFinish ?? DEFAULT_WALL])].map((f) => WALLS[f].label).join(', ')}</dd>
           <dt>Pintu dan jendela</dt>
           <dd>{project.openings.length}</dd>
         </dl>
@@ -179,7 +182,7 @@ function ChapterCard({
         {roomCount} ruangan, luas lantai {total.toFixed(1)} m².
       </p>
       <div className="present-actions">
-        <Link className="btn btn-accent btn-link" href={`/${SHARE_PREFIX}${code}`}>
+        <Link className="btn btn-accent btn-link" href={`/proyek/kiriman${SHARE_PREFIX}${code}`}>
           Buka denah ini di editor
         </Link>
         <button className="btn" onClick={() => scrollTo({ top: 0, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })}>

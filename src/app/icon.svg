@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Ikon sementara (huruf D pada kertas), ganti dengan logo resmi Denahin kalau sudah ada. -->
+  <rect x="1" y="1" width="30" height="30" rx="3" fill="#f3eee3" stroke="#2a2420" stroke-width="2"/>
+  <text x="16" y="23" text-anchor="middle" font-family="Georgia, serif" font-weight="700" font-size="20" fill="#2a2420">D</text>
+</svg>

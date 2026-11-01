@@ -146,15 +146,27 @@ function leaveSharedState() {
 }
 
 // Simpan denah dari luar (tautan kiriman, file, atau cloud) sebagai proyek baru. Proyek yang ada tidak disentuh.
-export function addProject(p: Project, name: string, cloudId?: string) {
+export function addProject(p: Project, name: string, cloudId?: string): string | null {
   const id = uid()
   try {
     localStorage.setItem(projectKey(id), JSON.stringify(p))
     writeIndex([{ id, name, updatedAt: Date.now(), ...(cloudId && { cloudId }) }, ...useProject.getState().projects])
     leaveSharedState()
     openLocal(id)
+    return id
   } catch {
     useProject.setState({ error: SAVE_FAILED })
+    return null
+  }
+}
+
+// Baca isi proyek tanpa membukanya (untuk pratinjau di dashboard). Rusak atau tidak ada = null.
+export function readProject(id: string): Project | null {
+  try {
+    const raw = localStorage.getItem(projectKey(id))
+    return raw ? parseProject(JSON.parse(raw)) : emptyProject()
+  } catch {
+    return null
   }
 }
 

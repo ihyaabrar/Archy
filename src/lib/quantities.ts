@@ -2,8 +2,8 @@
 // koefisien yang tampil dan bisa diubah pengguna, karena koefisien bergantung spesifikasi dan pemasok.
 
 import { CATALOG } from './furniture'
-import { DEFAULT_FLOOR, DEFAULT_WALL, FLOORS, WALLS, type FloorKey } from './materials'
-import { levelsOf, onLevel, polygonArea, wallLength, type Project } from './project'
+import { DEFAULT_FLOOR, FLOORS, WALLS, type FloorKey, type WallKey } from './materials'
+import { finishOf, levelsOf, onLevel, polygonArea, wallLength, type Project, type Wall } from './project'
 import { DEFAULT_ROOF, ROOF_MATERIALS, roofBase, roofMesh, triArea } from './roof'
 
 export type Coefficients = {
@@ -24,7 +24,6 @@ const fmt = (n: number) => n.toLocaleString('id-ID', { maximumFractionDigits: 2 
 
 export function quantities(p: Project, c: Coefficients = DEFAULT_COEF): Row[] {
   const rows: Row[] = []
-  const finish = p.wallFinish ?? DEFAULT_WALL
   for (const l of [...levelsOf(p)].sort((a, b) => a.elevation - b.elevation)) {
     const part = onLevel(p, l.id)
     if (!part.walls.length && !part.rooms.length && !part.furniture.length) continue
@@ -33,18 +32,25 @@ export function quantities(p: Project, c: Coefficients = DEFAULT_COEF): Row[] {
     // Dinding: panjang as, luas kotor, dikurangi bukaan (tinggi bukaan dibatasi tinggi dinding).
     const length = part.walls.reduce((s, w) => s + wallLength(w), 0)
     const gross = part.walls.reduce((s, w) => s + wallLength(w) * w.height, 0)
-    const holes = part.openings.reduce((s, o) => {
-      const w = part.walls.find((x) => x.id === o.wallId)!
-      return s + o.width * Math.max(0, Math.min(o.height, w.height - o.sill))
-    }, 0)
+    const holesOf = (w: Wall) =>
+      part.openings.filter((o) => o.wallId === w.id).reduce((s, o) => s + o.width * Math.max(0, Math.min(o.height, w.height - o.sill)), 0)
+    const holes = part.walls.reduce((s, w) => s + holesOf(w), 0)
     const net = Math.max(0, gross - holes)
+    // Luas bersih per material dinding (material bisa beda per dinding).
+    const byFinish = new Map<WallKey, number>()
+    for (const w of part.walls) {
+      const f = finishOf(p, w)
+      byFinish.set(f, (byFinish.get(f) ?? 0) + Math.max(0, wallLength(w) * w.height - holesOf(w)))
+    }
     if (part.walls.length) {
       add('Dinding', 'Panjang dinding (as)', length, 'm')
       add('Dinding', 'Luas dinding bersih (satu sisi)', net, 'm²', `kotor ${fmt(gross)} m² dikurangi bukaan ${fmt(holes)} m²`)
       add('Dinding', 'Bata (perkiraan)', Math.ceil(net * c.bricksPerM2 * (1 + c.waste)), 'buah', `${fmt(c.bricksPerM2)} bata/m², sisa ${fmt(c.waste * 100)}%`)
-      add('Dinding', 'Luas bidang finishing (dua sisi)', net * 2, 'm²', WALLS[finish].label)
-      if (finish === 'cat')
-        add('Dinding', 'Cat (perkiraan)', Math.ceil((net * 2 * c.paintCoats) / c.paintM2PerLiter), 'liter', `${c.paintCoats} lapis, ${fmt(c.paintM2PerLiter)} m²/liter per lapis`)
+      for (const [f, area] of byFinish) {
+        add('Dinding', 'Luas bidang finishing (dua sisi)', area * 2, 'm²', WALLS[f].label)
+        if (f === 'cat')
+          add('Dinding', 'Cat (perkiraan)', Math.ceil((area * 2 * c.paintCoats) / c.paintM2PerLiter), 'liter', `${c.paintCoats} lapis, ${fmt(c.paintM2PerLiter)} m²/liter per lapis`)
+      }
     }
 
     // Lantai per material.
@@ -81,7 +87,7 @@ export function quantities(p: Project, c: Coefficients = DEFAULT_COEF): Row[] {
       add('Atap', `Luas bidang atap ${r.type}`, mesh.area, 'm²', `kemiringan ${fmt(r.pitch)}°, teritisan ${fmt(r.overhang)} m`)
       if (r.material === 'metal') add('Atap', `${m.label} termasuk sisa potong`, mesh.area * (1 + c.waste), 'm²', `sisa ${fmt(c.waste * 100)}%`)
       else add('Atap', `${m.label} (perkiraan)`, Math.ceil(mesh.area * c.roofTilesPerM2 * (1 + c.waste)), 'buah', `${fmt(c.roofTilesPerM2)} buah/m², sisa ${fmt(c.waste * 100)}%`)
-      if (mesh.gables.length) add('Atap', 'Dinding sopi-sopi', mesh.gables.reduce((s, t) => s + triArea(t), 0), 'm²', 'dua segitiga di ujung pelana')
+      if (mesh.gables.length) add('Atap', 'Dinding sopi-sopi', mesh.gables.reduce((s, t) => s + triArea(t), 0), 'm²', 'bidang di atas dinding ujung pelana')
     }
   }
   return rows

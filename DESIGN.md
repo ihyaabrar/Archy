@@ -19,6 +19,11 @@ Di panel hanya muncul sebagai kotak contoh kecil.
 - Teks antarmuka: sans teknis yang jelas pada ukuran kecil.
 - Angka ukuran: mono, supaya digit sejajar seperti dimensi di gambar kerja.
 
+## Halaman depan
+Mengikuti gambar referensi pemilik (lembar gambar kerja di video): judul stensil besar, label kapital renggang ala kepala gambar,
+gelembung as dan rantai ukuran dari dinding proyek, kotak kepala gambar, batang skala, panah utara.
+Label kapital renggang dipakai karena itu konvensi lettering gambar kerja, bukan hiasan. Satu tombol kapsul untuk aksi utama.
+
 ## Suasana
 Tenang, presisi, seperti lembar gambar. Tidak ada glow, gradien, atau bayangan besar.
 

@@ -3,31 +3,26 @@
 import { useEffect, useState } from 'react'
 import { PlanCanvas, type Selection, type Tool, type View } from './PlanCanvas'
 import { Building } from './Building'
-import { NumberField } from './NumberField'
 import { ProjectsButton } from './ProjectsDialog'
 import { QuantitiesButton } from './QuantitiesDialog'
 import { AccountButton } from './AccountDialog'
-import { startCloudSync } from '@/lib/cloud'
-import { adoptShared, discardStoredProject, leaveShared, startPersistence, useProject } from '@/lib/store'
-import { FIRST_LEVEL, addLevel, levelsOf, onLevel, polygonArea, removeLevel, uid, wallLength, type Point } from '@/lib/project'
-import { CATALOG, GROUPS, dims, type FurnitureKind } from '@/lib/furniture'
-import { DEFAULT_FLOOR, DEFAULT_WALL, FLOORS, WALLS, type FloorKey, type WallKey } from '@/lib/materials'
-
-function rotateFurniture(id: string, by: number) {
-  useProject.getState().apply((p) => ({ ...p, furniture: p.furniture.map((f) => (f.id === id ? { ...f, rot: turn(f.rot, by) } : f)) }))
-}
+import Link from 'next/link'
+import { adoptShared, discardStoredProject, leaveShared, useProject } from '@/lib/store'
+import { FIRST_LEVEL, addLevel, levelsOf, uid, type Point } from '@/lib/project'
+import { type FurnitureKind } from '@/lib/furniture'
+import { Inspector, FurniturePicker } from './Inspector'
+import { turn, duplicateSelected, rotateFurniture, removeSelected } from './editActions'
 
 const TOOLS: { id: Tool; label: string; key: string; hint: string }[] = [
-  { id: 'select', label: 'Pilih', key: 'V', hint: 'Klik elemen untuk mengubahnya. Seret area kosong untuk menggeser kanvas.' },
-  { id: 'wall', label: 'Dinding', key: 'W', hint: 'Klik titik awal, lalu klik titik berikutnya. Sudut terkunci 45°, tahan Alt untuk bebas. Esc atau klik kanan untuk berhenti.' },
+  { id: 'select', label: 'Pilih', key: 'V', hint: 'Klik elemen untuk mengubahnya. Seret area kosong untuk menggeser kanvas. Keyboard: Tab ke kanvas, [ dan ] memilih, panah menggeser.' },
+  { id: 'wall', label: 'Dinding', key: 'W', hint: 'Klik titik awal, lalu klik titik berikutnya. Sudut terkunci 45°, tahan Alt untuk bebas. Esc atau klik kanan untuk berhenti. Keyboard: panah lalu Enter.' },
   { id: 'door', label: 'Pintu', key: 'D', hint: 'Klik pada dinding untuk memasang pintu 0,90 m.' },
   { id: 'window', label: 'Jendela', key: 'J', hint: 'Klik pada dinding untuk memasang jendela 1,20 m.' },
   { id: 'room', label: 'Ruangan', key: 'R', hint: 'Klik sudut-sudut ruangan. Klik titik pertama, klik ganda, atau Enter untuk menutup.' },
   { id: 'furniture', label: 'Furnitur', key: 'F', hint: 'Pilih jenis di panel kanan, lalu klik di denah untuk menaruh. Q dan E memutar 90°. Geser dengan alat Pilih.' },
+  { id: 'text', label: 'Teks', key: 'T', hint: 'Klik di denah untuk menaruh catatan, lalu ubah isinya di panel kanan.' },
+  { id: 'measure', label: 'Ukur', key: 'M', hint: 'Klik titik awal lalu titik akhir. Titik menempel ke ujung dinding. Garis ukur ikut tercetak.' },
 ]
-
-// Putar furnitur terpilih, atau arah taruh berikutnya kalau belum ada yang dipilih.
-const turn = (rot: number, by: number) => (((rot + by) % 360) + 360) % 360
 
 export function Editor() {
   const [mode, setMode] = useState<'2d' | '3d'>('2d')
@@ -45,9 +40,6 @@ export function Editor() {
   const levels = levelsOf({ levels: rawLevels })
   const [levelPick, setLevelPick] = useState(FIRST_LEVEL.id)
   const level = levels.some((l) => l.id === levelPick) ? levelPick : levels[0].id
-
-  useEffect(() => startPersistence(), [])
-  useEffect(() => startCloudSync(), [])
 
   const setTool = (t: Tool) => {
     setToolState(t)
@@ -69,6 +61,9 @@ export function Editor() {
         e.preventDefault()
         redo()
         setSelection(null)
+      } else if (mod && e.key.toLowerCase() === 'd' && selection && selection.kind !== 'opening') {
+        e.preventDefault() // jangan biarkan browser membuat bookmark
+        duplicateSelected(selection, setSelection)
       } else if (e.key === 'Escape') {
         setDraft([])
         setSelection(null)
@@ -145,7 +140,11 @@ export function Editor() {
   return (
     <main className="editor">
       <header className="editor-head">
-        <h1 className="stencil">Denahin</h1>
+        <h1 className="stencil">
+          <Link href="/" className="brand-link" title="Kembali ke daftar proyek">
+            Denahin
+          </Link>
+        </h1>
         <ProjectsButton />
         <QuantitiesButton />
         <LevelBar level={level} setLevel={(id) => (setLevelPick(id), setSelection(null), setDraft([]))} />
@@ -184,7 +183,7 @@ export function Editor() {
       )}
 
       {mode === '3d' ? (
-        <Building level={level} />
+        <Building level={level} onLevel={setLevelPick} />
       ) : (
         <>
       <section className="canvas-wrap" aria-label="Lembar denah">
@@ -213,20 +212,12 @@ export function Editor() {
       {tool === 'furniture' && !selection ? (
         <FurniturePicker kind={furnitureKind} setKind={setFurnitureKind} rot={placeRot} setRot={setPlaceRot} />
       ) : (
-        <Inspector selection={selection} onDelete={() => setSelection(null)} level={level} />
+        <Inspector selection={selection} onDelete={() => setSelection(null)} onSelect={setSelection} level={level} />
       )}
         </>
       )}
     </main>
   )
-}
-
-function removeSelected(p: ReturnType<typeof useProject.getState>['project'], sel: NonNullable<Selection>) {
-  if (sel.kind === 'wall')
-    return { ...p, walls: p.walls.filter((w) => w.id !== sel.id), openings: p.openings.filter((o) => o.wallId !== sel.id) }
-  if (sel.kind === 'opening') return { ...p, openings: p.openings.filter((o) => o.id !== sel.id) }
-  if (sel.kind === 'furniture') return { ...p, furniture: p.furniture.filter((f) => f.id !== sel.id) }
-  return { ...p, rooms: p.rooms.filter((r) => r.id !== sel.id) }
 }
 
 function UndoRedo({ onChange }: { onChange: () => void }) {
@@ -285,225 +276,3 @@ function LevelBar({ level, setLevel }: { level: string; setLevel: (id: string) =
   )
 }
 
-function LevelSettings({ level }: { level: string }) {
-  const project = useProject((s) => s.project)
-  const apply = useProject((s) => s.apply)
-  const levels = levelsOf(project)
-  const l = levels.find((x) => x.id === level)!
-  // Lantai pertama implisit disimpan sebagai daftar saat pertama kali diubah.
-  const set = (patch: Partial<typeof l>) => apply((p) => ({ ...p, levels: levelsOf(p).map((x) => (x.id === l.id ? { ...x, ...patch } : x)) }))
-  const count = onLevel(project, level)
-  return (
-    <fieldset className="picker">
-      <legend>Lantai aktif</legend>
-      <label className="field">
-        <span>Nama lantai</span>
-        <input
-          key={l.id}
-          defaultValue={l.name}
-          maxLength={30}
-          onBlur={(e) => {
-            const v = e.target.value.trim()
-            if (v && v !== l.name) set({ name: v })
-          }}
-          onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
-        />
-      </label>
-      <NumberField label="Elevasi dari tanah (m)" value={l.elevation} min={-10} max={200} onCommit={(v) => set({ elevation: v })} />
-      {levels.length > 1 && (
-        <button
-          className="btn btn-danger"
-          onClick={() => {
-            const isi = count.walls.length + count.rooms.length + count.furniture.length
-            if (!isi || confirm(`Hapus "${l.name}" beserta ${isi} elemen di dalamnya?`)) apply((p) => removeLevel(p, l.id))
-          }}
-        >
-          Hapus lantai ini
-        </button>
-      )}
-    </fieldset>
-  )
-}
-
-// Pilihan material: kotak warna + nama, satu tombol per pilihan (bukan dropdown) supaya terlihat sekaligus.
-function Swatches({ legend, options, value, onPick }: { legend: string; options: { key: string; label: string; color: string }[]; value: string; onPick: (k: string) => void }) {
-  return (
-    <fieldset className="picker">
-      <legend>{legend}</legend>
-      {options.map((o) => (
-        <button key={o.key} className="tool picker-item" aria-pressed={o.key === value} onClick={() => o.key !== value && onPick(o.key)}>
-          <span className="swatch-row">
-            <span className="swatch" style={{ background: o.color }} aria-hidden />
-            {o.label}
-          </span>
-        </button>
-      ))}
-    </fieldset>
-  )
-}
-
-function FurniturePicker({ kind, setKind, rot, setRot }: { kind: FurnitureKind; setKind: (k: FurnitureKind) => void; rot: number; setRot: (r: number) => void }) {
-  return (
-    <aside className="inspector" aria-label="Pilih furnitur">
-      <h2 className="stencil">Furnitur</h2>
-      {Object.entries(GROUPS).map(([group, kinds]) => (
-        <fieldset key={group} className="picker">
-          <legend>{group}</legend>
-          {kinds.map((k) => (
-            <button key={k} className="tool picker-item" aria-pressed={k === kind} onClick={() => setKind(k)}>
-              {CATALOG[k].label}
-              <span className="dim-text">
-                {CATALOG[k].w.toFixed(1)}×{CATALOG[k].d.toFixed(1)}
-              </span>
-            </button>
-          ))}
-        </fieldset>
-      ))}
-      <div className="tour-buttons">
-        <button className="btn" onClick={() => setRot(turn(rot, -90))} title="Q">
-          Putar kiri
-        </button>
-        <button className="btn" onClick={() => setRot(turn(rot, 90))} title="E">
-          Putar kanan
-        </button>
-      </div>
-      <p className="muted">Arah taruh {rot}°. Klik di denah untuk menaruh.</p>
-    </aside>
-  )
-}
-
-function Inspector({ selection, onDelete, level }: { selection: Selection; onDelete: () => void; level: string }) {
-  const project = useProject((s) => s.project)
-  const apply = useProject((s) => s.apply)
-
-  if (!selection) {
-    return (
-      <aside className="inspector" aria-label="Properti">
-        <h2 className="stencil">Lembar</h2>
-        <dl className="facts">
-          <dt>Dinding</dt>
-          <dd>{project.walls.length}</dd>
-          <dt>Bukaan</dt>
-          <dd>{project.openings.length}</dd>
-          <dt>Ruangan</dt>
-          <dd>{project.rooms.length}</dd>
-          <dt>Furnitur</dt>
-          <dd>{project.furniture.length}</dd>
-        </dl>
-        <p className="muted">Pilih elemen dengan alat Pilih (V) untuk mengubah ukurannya. Material lantai diatur per ruangan.</p>
-        <LevelSettings level={level} />
-        <Swatches
-          legend="Material dinding (semua dinding)"
-          options={Object.entries(WALLS).map(([k, v]) => ({ key: k, label: v.label, color: v.base }))}
-          value={project.wallFinish ?? DEFAULT_WALL}
-          onPick={(k) => apply((p) => ({ ...p, wallFinish: k as WallKey }))}
-        />
-      </aside>
-    )
-  }
-
-  const del = (
-    <button
-      className="btn btn-danger"
-      onClick={() => {
-        apply((p) => removeSelected(p, selection))
-        onDelete()
-      }}
-    >
-      Hapus elemen
-    </button>
-  )
-
-  if (selection.kind === 'furniture') {
-    const f = project.furniture.find((x) => x.id === selection.id)
-    if (!f) return null
-    const c = dims(f)
-    const set = (patch: Partial<typeof f>) => apply((p) => ({ ...p, furniture: p.furniture.map((x) => (x.id === f.id ? { ...x, ...patch } : x)) }))
-    const custom = f.w !== undefined || f.d !== undefined
-    return (
-      <aside className="inspector" aria-label="Properti furnitur">
-        <h2 className="stencil">{c.label}</h2>
-        <NumberField label="Lebar (m)" value={c.w} min={0.2} max={10} onCommit={(v) => set({ w: v })} />
-        <NumberField label="Dalam (m)" value={c.d} min={0.2} max={10} onCommit={(v) => set({ d: v })} />
-        <p className="muted">
-          Tinggi {c.h.toFixed(2)} m. Arah {f.rot}°.
-        </p>
-        {custom && (
-          <button className="link-btn" onClick={() => set({ w: undefined, d: undefined })}>
-            Kembalikan ukuran katalog
-          </button>
-        )}
-        <div className="tour-buttons">
-          <button className="btn" onClick={() => rotateFurniture(f.id, -90)} title="Putar ke kiri (Q)">
-            Putar kiri
-          </button>
-          <button className="btn" onClick={() => rotateFurniture(f.id, 90)} title="Putar ke kanan (E)">
-            Putar kanan
-          </button>
-        </div>
-        <p className="muted">Seret dengan alat Pilih untuk memindahkan.</p>
-        {del}
-      </aside>
-    )
-  }
-
-  if (selection.kind === 'wall') {
-    const w = project.walls.find((x) => x.id === selection.id)
-    if (!w) return null
-    const set = (patch: Partial<typeof w>) => apply((p) => ({ ...p, walls: p.walls.map((x) => (x.id === w.id ? { ...x, ...patch } : x)) }))
-    return (
-      <aside className="inspector" aria-label="Properti dinding">
-        <h2 className="stencil">Dinding</h2>
-        <p className="muted">Panjang {wallLength(w).toFixed(2)} m</p>
-        <NumberField label="Tebal (m)" value={w.thickness} min={0.05} max={1} onCommit={(v) => set({ thickness: v })} />
-        <NumberField label="Tinggi (m)" value={w.height} min={1} max={10} onCommit={(v) => set({ height: v })} />
-        {del}
-      </aside>
-    )
-  }
-
-  if (selection.kind === 'opening') {
-    const o = project.openings.find((x) => x.id === selection.id)
-    const w = o && project.walls.find((x) => x.id === o.wallId)
-    if (!o || !w) return null
-    const set = (patch: Partial<typeof o>) => apply((p) => ({ ...p, openings: p.openings.map((x) => (x.id === o.id ? { ...x, ...patch } : x)) }))
-    return (
-      <aside className="inspector" aria-label={o.kind === 'door' ? 'Properti pintu' : 'Properti jendela'}>
-        <h2 className="stencil">{o.kind === 'door' ? 'Pintu' : 'Jendela'}</h2>
-        <NumberField label="Lebar (m)" value={o.width} min={0.4} max={Math.max(0.4, wallLength(w))} onCommit={(v) => set({ width: v, at: Math.min(Math.max(o.at, v / 2), wallLength(w) - v / 2) })} />
-        <NumberField label="Tinggi (m)" value={o.height} min={0.3} max={w.height} onCommit={(v) => set({ height: v })} />
-        {o.kind === 'window' && <NumberField label="Tinggi ambang (m)" value={o.sill} min={0} max={w.height - o.height} onCommit={(v) => set({ sill: v })} />}
-        {del}
-      </aside>
-    )
-  }
-
-  const r = project.rooms.find((x) => x.id === selection.id)
-  if (!r) return null
-  return (
-    <aside className="inspector" aria-label="Properti ruangan">
-      <h2 className="stencil">Ruangan</h2>
-      <label className="field">
-        <span>Nama</span>
-        <input
-          key={r.id}
-          defaultValue={r.name}
-          maxLength={40}
-          onBlur={(e) => {
-            const name = e.target.value.trim() || r.name
-            if (name !== r.name) apply((p) => ({ ...p, rooms: p.rooms.map((x) => (x.id === r.id ? { ...x, name } : x)) }))
-          }}
-          onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
-        />
-      </label>
-      <p className="muted">Luas {polygonArea(r.points).toFixed(1)} m²</p>
-      <Swatches
-        legend="Material lantai"
-        options={Object.entries(FLOORS).map(([k, v]) => ({ key: k, label: v.label, color: v.base }))}
-        value={r.floor ?? DEFAULT_FLOOR}
-        onPick={(k) => apply((p) => ({ ...p, rooms: p.rooms.map((x) => (x.id === r.id ? { ...x, floor: k as FloorKey } : x)) }))}
-      />
-      {del}
-    </aside>
-  )
-}

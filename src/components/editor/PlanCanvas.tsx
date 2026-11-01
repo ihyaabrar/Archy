@@ -1,35 +1,16 @@
 'use client'
 
-import { useMemo, useRef, useState, type PointerEvent as RPointerEvent } from 'react'
-import {
-  OPENING_DEFAULTS,
-  WALL_DEFAULTS,
-  centroid,
-  clampOpening,
-  dist,
-  levelsOf,
-  lockAngle,
-  moveVertex,
-  nearestWall,
-  onLevel,
-  withLevel,
-  polygonArea,
-  snap,
-  snapToEndpoint,
-  uid,
-  wallLength,
-  type Opening,
-  type Point,
-  type Room,
-  type Wall,
-} from '@/lib/project'
-import { dimensionLabel, openingSymbol, planCenter as getPlanCenter, wallPolygons } from '@/lib/drawing'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent as RKeyboardEvent, type PointerEvent as RPointerEvent } from 'react'
+import { OPENING_DEFAULTS, WALL_DEFAULTS, clampOpening, dist, levelsOf, lockAngle, pointAlong, projectOnWall, round, moveVertex, translateWall, moveNote, nearestWall, onLevel, withLevel, snap, snapToEndpoint, uid, wallLength, type Opening, type Point, type Wall } from '@/lib/project'
+import { planCenter as getPlanCenter, wallPolygons } from '@/lib/drawing'
 import { useProject } from '@/lib/store'
-import { dims, symbol, type Furniture, type FurnitureKind } from '@/lib/furniture'
+import { dims, type Furniture, type FurnitureKind } from '@/lib/furniture'
+import { Dimension, FurnitureShape, NoteShape, OpeningShape, RoomLabel, WallShape } from './PlanShapes'
 import { DEFAULT_FLOOR, FLOORS } from '@/lib/materials'
+import { nudge } from './editActions'
 
-export type Tool = 'select' | 'wall' | 'door' | 'window' | 'room' | 'furniture'
-export type Selection = { kind: 'wall' | 'opening' | 'room' | 'furniture'; id: string } | null
+export type Tool = 'select' | 'wall' | 'door' | 'window' | 'room' | 'furniture' | 'text' | 'measure'
+export type Selection = { kind: 'wall' | 'opening' | 'room' | 'furniture' | 'note'; id: string } | null
 export type View = { tx: number; ty: number; s: number } // s = piksel per meter
 
 const GRID_SNAP = 0.05
@@ -61,10 +42,18 @@ export function PlanCanvas({ tool, view, setView, selection, setSelection, draft
   const apply = useProject((s) => s.apply)
   const svgRef = useRef<SVGSVGElement>(null)
   const [cursor, setCursor] = useState<Point | null>(null)
+  // Pesan untuk pembaca layar (aria-live): elemen terpilih, geseran, titik yang ditaruh.
+  const [say, setSay] = useState('')
   const [freeAngle, setFreeAngle] = useState(false)
   const pan = useRef<{ x: number; y: number } | null>(null)
   // Furnitur yang sedang diseret: posisi sementara, baru dicatat ke riwayat saat dilepas (satu langkah undo).
   const [drag, setDrag] = useState<{ id: string; offset: Point; pos: Point; moved: boolean } | null>(null)
+  // Pintu/jendela yang sedang digeser sepanjang dindingnya (posisi sementara, satu langkah urungkan saat dilepas).
+  const [odrag, setOdrag] = useState<{ id: string; at: number; moved: boolean } | null>(null)
+  // Dinding utuh yang sedang diseret: titik awal seret dan pergeseran (dibulatkan ke grid).
+  const [wdrag, setWdrag] = useState<{ id: string; start: Point; d: Point } | null>(null)
+  // Anotasi yang sedang diseret, sama seperti dinding utuh.
+  const [ndrag, setNdrag] = useState<{ id: string; start: Point; d: Point } | null>(null)
   // Titik sudut dinding yang sedang diseret (dari posisi lama ke posisi baru).
   const [vdrag, setVdrag] = useState<{ from: Point; to: Point } | null>(null)
 
@@ -82,12 +71,73 @@ export function PlanCanvas({ tool, view, setView, selection, setSelection, draft
   const pick = PICK_PX / view.s
 
   // Titik kerja: ujung dinding terdekat, lalu kunci sudut, lalu grid.
+  // Titik kerja, urutan prioritas: ujung dinding, garis dinding (sambungan T), lalu kunci sudut dan grid.
   const workPoint = (raw: Point, free: boolean): Point => {
     const end = snapToEndpoint(raw, project.walls, pick)
     if (end) return end
     const from = draft.at(-1)
-    return snap(from && tool === 'wall' && !free ? lockAngle(from, raw) : raw, GRID_SNAP)
+    const lock = !!from && tool === 'wall' && !free
+    const p = lock ? lockAngle(from!, raw) : raw
+    const near = nearestWall(p, project.walls, pick)
+    if (near) {
+      // Dengan kunci sudut, titik diambil di perpotongan arah gambar dengan dinding, supaya sekat tetap lurus.
+      // Tanpa kunci, posisi di sepanjang dinding dibulatkan ke grid supaya ujung dinding berikutnya bisa sejajar.
+      const x = lock ? rayOnWall(from!, p, near.wall) : null
+      const q = x ?? pointAlong(near.wall, round(near.t, GRID_SNAP))
+      return [round(q[0], 0.001), round(q[1], 0.001)]
+    }
+    if (lock) {
+      // Kunci sudut: bulatkan panjangnya, bukan x dan y, supaya arah 0/45/90° tidak bergeser oleh grid.
+      const len = round(Math.hypot(p[0] - from![0], p[1] - from![1]), GRID_SNAP)
+      const ang = Math.atan2(p[1] - from![1], p[0] - from![0])
+      return [round(from![0] + Math.cos(ang) * len, 0.001), round(from![1] + Math.sin(ang) * len, 0.001)]
+    }
+    return snap(p, GRID_SNAP)
   }
+
+  // Panjang dinding yang sedang diketik, terikat ke titik awal tempat mulai mengetik.
+  const [typed, setTyped] = useState<{ at: string; text: string } | null>(null)
+  const from = draft.at(-1)
+  const typing = tool === 'wall' && from && typed?.at === from.join(',') ? typed.text : null
+  const typedLen = typing ? Number(typing.replace(',', '.')) : NaN
+  // Arah dinding ketikan mengikuti kursor (dengan kunci sudut); tanpa kursor, ke kanan.
+  const typedEnd = (): Point | null => {
+    if (!from || !(typedLen > 0)) return null
+    const dir = cursor ? workPoint(cursor, freeAngle) : ([from[0] + 1, from[1]] as Point)
+    const d = Math.hypot(dir[0] - from[0], dir[1] - from[1]) || 1
+    const ux = d > 1e-6 ? (dir[0] - from[0]) / d : 1
+    const uy = d > 1e-6 ? (dir[1] - from[1]) / d : 0
+    return [round(from[0] + ux * typedLen, 0.001), round(from[1] + uy * typedLen, 0.001)]
+  }
+
+  useEffect(() => {
+    if (tool !== 'wall' || !from) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.ctrlKey || e.metaKey || e.altKey) return
+      const at = from.join(',')
+      const cur = typed?.at === at ? typed.text : ''
+      // Pemisah desimal dikenali dari tombolnya (koma, titik, numpad), tidak bergantung tata letak keyboard.
+      const isSep = [',', '.'].includes(e.key) || ['Comma', 'Period', 'NumpadDecimal'].includes(e.code)
+      if (/^[0-9]$/.test(e.key) || (isSep && !cur.includes(','))) {
+        e.preventDefault()
+        setTyped({ at, text: (cur + (isSep ? ',' : e.key)).slice(0, 7) })
+      } else if (e.key === 'Backspace' && cur) {
+        e.preventDefault()
+        e.stopImmediatePropagation()
+        setTyped({ at, text: cur.slice(0, -1) })
+      } else if (e.key === 'Enter' && cur) {
+        e.preventDefault()
+        const end = typedEnd()
+        if (!end) return
+        apply((pr) => ({ ...pr, walls: [...pr.walls, { id: uid(), a: from, b: end, ...WALL_DEFAULTS, level }] }))
+        setDraft([end])
+        setTyped(null)
+      }
+    }
+    // Didaftarkan saat capture supaya Backspace tidak sampai ke pintasan hapus elemen di editor.
+    addEventListener('keydown', onKey, true)
+    return () => removeEventListener('keydown', onKey, true)
+  })
 
   const openingPreview = (p: Point): Opening | null => {
     if (tool !== 'door' && tool !== 'window') return null
@@ -162,6 +212,19 @@ export function PlanCanvas({ tool, view, setView, selection, setSelection, draft
       const pos = snap(raw, GRID_SNAP)
       apply((pr) => ({ ...pr, furniture: [...pr.furniture, { id, kind: furnitureKind, pos, rot: placeRot, level }] }))
       setSelection({ kind: 'furniture', id })
+    } else if (tool === 'text') {
+      const id = uid()
+      apply((pr) => ({ ...pr, notes: [...(pr.notes ?? []), { id, a: snap(raw, GRID_SNAP), text: 'Catatan', level }] }))
+      setSelection({ kind: 'note', id })
+    } else if (tool === 'measure') {
+      // Klik pertama = titik awal, klik kedua = garis ukur jadi. Titik menempel ke ujung dinding.
+      const from = draft.at(-1)
+      if (!from) return setDraft([p])
+      if (dist(from, p) < GRID_SNAP) return
+      const id = uid()
+      apply((pr) => ({ ...pr, notes: [...(pr.notes ?? []), { id, a: from, b: p, level }] }))
+      setDraft([])
+      setSelection({ kind: 'note', id })
     }
   }
 
@@ -179,6 +242,30 @@ export function PlanCanvas({ tool, view, setView, selection, setSelection, draft
     apply((pr) => ({ ...pr, rooms: [...pr.rooms, { id, name: `Ruang ${pr.rooms.length + 1}`, points: pts, level }] }))
     setDraft([])
     setSelection({ kind: 'room', id })
+  }
+
+  const startWallDrag = (id: string) => (e: RPointerEvent) => {
+    if (tool !== 'select' || e.button !== 0) return
+    e.stopPropagation()
+    setSelection({ kind: 'wall', id })
+    setWdrag({ id, start: toWorld(e), d: [0, 0] })
+    capture(e.pointerId)
+  }
+
+  const startNoteDrag = (id: string) => (e: RPointerEvent) => {
+    if (tool !== 'select' || e.button !== 0) return
+    e.stopPropagation()
+    setSelection({ kind: 'note', id })
+    setNdrag({ id, start: toWorld(e), d: [0, 0] })
+    capture(e.pointerId)
+  }
+
+  const startOpeningDrag = (o: Opening) => (e: RPointerEvent) => {
+    if (tool !== 'select' || e.button !== 0) return
+    e.stopPropagation()
+    setSelection({ kind: 'opening', id: o.id })
+    setOdrag({ id: o.id, at: o.at, moved: false })
+    capture(e.pointerId)
   }
 
   const startVertexDrag = (from: Point) => (e: RPointerEvent) => {
@@ -203,6 +290,26 @@ export function PlanCanvas({ tool, view, setView, selection, setSelection, draft
         return
       }
       if (tap.current && Math.hypot(e.clientX - tap.current.x, e.clientY - tap.current.y) > 10) tap.current = null
+    }
+    if (ndrag) {
+      const w = toWorld(e)
+      const d = snap([w[0] - ndrag.start[0], w[1] - ndrag.start[1]], GRID_SNAP)
+      if (d[0] !== ndrag.d[0] || d[1] !== ndrag.d[1]) setNdrag({ ...ndrag, d })
+      return
+    }
+    if (wdrag) {
+      const w = toWorld(e)
+      const d = snap([w[0] - wdrag.start[0], w[1] - wdrag.start[1]], GRID_SNAP)
+      if (d[0] !== wdrag.d[0] || d[1] !== wdrag.d[1]) setWdrag({ ...wdrag, d })
+      return
+    }
+    if (odrag) {
+      const o = project.openings.find((x) => x.id === odrag.id)
+      const w = o && project.walls.find((x) => x.id === o.wallId)
+      if (!o || !w) return
+      const at = clampOpening(round(projectOnWall(toWorld(e), w).t, GRID_SNAP), o.width, w)
+      if (at !== odrag.at) setOdrag({ ...odrag, at, moved: true })
+      return
     }
     if (vdrag) {
       // Tarik ke ujung dinding lain (bukan titik yang sedang digeser), lalu grid.
@@ -253,6 +360,21 @@ export function PlanCanvas({ tool, view, setView, selection, setSelection, draft
       }))
     }
     setVdrag(null)
+    if (odrag?.moved) {
+      const { id, at } = odrag
+      apply((pr) => ({ ...pr, openings: pr.openings.map((x) => (x.id === id ? { ...x, at } : x)) }))
+    }
+    setOdrag(null)
+    if (wdrag && (wdrag.d[0] || wdrag.d[1])) {
+      const { id, d } = wdrag
+      apply((all) => withLevel(all, level, (pr) => translateWall(pr, id, d)))
+    }
+    setWdrag(null)
+    if (ndrag && (ndrag.d[0] || ndrag.d[1])) {
+      const { id, d } = ndrag
+      apply((pr) => ({ ...pr, notes: pr.notes?.map((n) => (n.id === id ? moveNote(n, d) : n)) }))
+    }
+    setNdrag(null)
   }
 
   const onWheel = (e: React.WheelEvent<SVGSVGElement>) => {
@@ -276,189 +398,233 @@ export function PlanCanvas({ tool, view, setView, selection, setSelection, draft
   const preview = cursor ? openingPreview(cursor) : null
   const k = 1 / view.s // satu piksel layar dalam meter
   // Saat titik dinding diseret, gambar memakai denah sementara; riwayat baru dicatat saat dilepas.
-  const shown = vdrag ? moveVertex(project, vdrag.from, vdrag.to) : project
+  const shown = vdrag ? moveVertex(project, vdrag.from, vdrag.to) : wdrag ? translateWall(project, wdrag.id, wdrag.d) : project
   const planCenter = getPlanCenter(shown)
 
-  return (
-    <svg
-      ref={svgRef}
-      className="plan-canvas"
-      data-tool={tool}
-      role="application"
-      aria-label="Kanvas denah. Gunakan toolbar atau pintasan keyboard untuk memilih alat."
-      onPointerDown={onDown}
-      onPointerMove={onMove}
-      onPointerUp={onUp}
-      onPointerCancel={onUp}
-      onPointerLeave={() => setCursor(null)}
-      onWheel={onWheel}
-      onDoubleClick={() => tool === 'room' && draft.length >= 3 && closeRoom(draft)}
-      onContextMenu={(e) => {
+  // Keyboard: semua yang bisa dilakukan dengan tetikus juga bisa dari keyboard saat kanvas difokus (Tab).
+  const fmt = (n: number) => n.toFixed(2).replace('.', ',')
+  const describe = (sel: NonNullable<Selection>) => {
+    if (sel.kind === 'wall') {
+      const w = project.walls.find((x) => x.id === sel.id)
+      return w ? `Dinding ${fmt(wallLength(w))} m` : 'Dinding'
+    }
+    if (sel.kind === 'opening') return project.openings.find((x) => x.id === sel.id)?.kind === 'door' ? 'Pintu' : 'Jendela'
+    if (sel.kind === 'room') return `Ruangan ${project.rooms.find((x) => x.id === sel.id)?.name ?? ''}`
+    if (sel.kind === 'furniture') {
+      const f = project.furniture.find((x) => x.id === sel.id)
+      return f ? `Furnitur ${dims(f).label}` : 'Furnitur'
+    }
+    const n = project.notes?.find((x) => x.id === sel.id)
+    return n?.b ? `Garis ukur ${fmt(dist(n.a, n.b))} m` : `Catatan ${n?.text ?? ''}`
+  }
+  const elements = (): NonNullable<Selection>[] => [
+    ...project.walls.map((x) => ({ kind: 'wall' as const, id: x.id })),
+    ...project.openings.map((x) => ({ kind: 'opening' as const, id: x.id })),
+    ...project.rooms.map((x) => ({ kind: 'room' as const, id: x.id })),
+    ...project.furniture.map((x) => ({ kind: 'furniture' as const, id: x.id })),
+    ...(project.notes ?? []).map((x) => ({ kind: 'note' as const, id: x.id })),
+  ]
+  const toClient = (q: Point) => {
+    const r = svgRef.current!.getBoundingClientRect()
+    return { clientX: r.left + view.tx + q[0] * view.s, clientY: r.top + view.ty + q[1] * view.s }
+  }
+  const onKeyDown = (e: RKeyboardEvent<SVGSVGElement>) => {
+    if (e.ctrlKey || e.metaKey || e.defaultPrevented) return
+    const arrows: Record<string, Point> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }
+    const dir = arrows[e.key]
+    if (tool === 'select') {
+      if (e.key === '[' || e.key === ']') {
+        const list = elements()
+        if (!list.length) return setSay('Belum ada elemen di lantai ini.')
+        const i = selection ? list.findIndex((x) => x.kind === selection.kind && x.id === selection.id) : -1
+        const next = list[(i + (e.key === ']' ? 1 : -1) + list.length) % list.length]
         e.preventDefault()
-        setDraft([])
-      }}
-    >
-      <defs>
-        {/* Grid 1 m dan 0,25 m: acuan skala dan snap saat menggambar, bukan hiasan. */}
-        <pattern id="grid-minor" width={0.25 * view.s} height={0.25 * view.s} patternUnits="userSpaceOnUse" x={view.tx} y={view.ty}>
-          <path d={`M ${0.25 * view.s} 0 L 0 0 0 ${0.25 * view.s}`} className="grid-minor" />
-        </pattern>
-        <pattern id="grid-major" width={view.s} height={view.s} patternUnits="userSpaceOnUse" x={view.tx} y={view.ty}>
-          {view.s >= 40 && <rect width={view.s} height={view.s} fill="url(#grid-minor)" />}
-          <path d={`M ${view.s} 0 L 0 0 0 ${view.s}`} className="grid-major" />
-        </pattern>
-      </defs>
-      <rect width="100%" height="100%" fill="url(#grid-major)" />
+        setSelection(next)
+        setSay(`${describe(next)} dipilih. Panah untuk menggeser, Delete untuk menghapus.`)
+      } else if (dir && selection) {
+        e.preventDefault()
+        const step = e.shiftKey ? 0.5 : e.altKey ? 0.01 : GRID_SNAP
+        const sel = selection
+        apply((all) => withLevel(all, level, (pr) => nudge(pr, sel, [dir[0] * step, dir[1] * step])))
+        setSay(`${describe(sel)} digeser ${fmt(step)} m.`)
+      } else if (dir) {
+        e.preventDefault()
+        setView((v) => ({ ...v, tx: v.tx - dir[0] * 40, ty: v.ty - dir[1] * 40 }))
+      }
+      return
+    }
+    // Alat gambar: panah menggerakkan kursor, Enter atau Spasi menaruh titik seperti klik.
+    // Tanpa kursor (belum ada tetikus atau panah): mulai dari titik terakhir, tengah denah, atau titik nol.
+    const here = cursor ?? draft.at(-1) ?? planCenter ?? ([0, 0] as Point)
+    if (dir) {
+      e.preventDefault()
+      const step = e.shiftKey ? 1 : e.altKey ? GRID_SNAP : 0.25
+      const from = here
+      const next: Point = [round(from[0] + dir[0] * step, 0.001), round(from[1] + dir[1] * step, 0.001)]
+      setCursor(next)
+      setSay(`Kursor x ${fmt(next[0])}, y ${fmt(next[1])} m.`)
+    } else if ((e.key === 'Enter' || e.key === ' ') && !(tool === 'room' && e.key === 'Enter' && draft.length >= 3)) {
+      e.preventDefault()
+      const { clientX, clientY } = toClient(here)
+      place(clientX, clientY, e.altKey)
+      setCursor(here)
+      const at = workPoint(here, e.altKey)
+      setSay(`Titik ditaruh di x ${fmt(at[0])}, y ${fmt(at[1])} m.`)
+    }
+  }
 
-      <g transform={`translate(${view.tx} ${view.ty}) scale(${view.s})`}>
-        {shown.rooms.map((r) => (
-          <g key={r.id} onPointerDown={selectOn({ kind: 'room', id: r.id })}>
-            <polygon
-              points={r.points.join(' ')}
-              className={isSel('room', r.id) ? 'room room-sel' : 'room'}
-              style={isSel('room', r.id) ? undefined : { fill: FLOORS[r.floor ?? DEFAULT_FLOOR].plan }}
+  return (
+    <>
+      <p id="kanvas-bantuan" className="sr-only">
+        Alat Pilih: kurung siku buka dan tutup untuk berpindah antar elemen, panah untuk menggeser (Shift 0,5 meter, Alt 1 sentimeter),
+        tanpa elemen terpilih panah menggeser tampilan. Alat gambar: panah menggerakkan kursor (0,25 meter, Shift 1 meter, Alt 5 sentimeter),
+        Enter atau Spasi menaruh titik, Escape berhenti.
+      </p>
+      <p className="sr-only" aria-live="polite">
+        {say}
+      </p>
+      <svg
+        ref={svgRef}
+        className="plan-canvas"
+        data-tool={tool}
+        role="application"
+        tabIndex={0}
+        aria-label="Kanvas denah"
+        aria-describedby="kanvas-bantuan"
+        onKeyDown={onKeyDown}
+        onPointerDown={onDown}
+        onPointerMove={onMove}
+        onPointerUp={onUp}
+        onPointerCancel={onUp}
+        onPointerLeave={() => setCursor(null)}
+        onWheel={onWheel}
+        onDoubleClick={() => tool === 'room' && draft.length >= 3 && closeRoom(draft)}
+        onContextMenu={(e) => {
+          e.preventDefault()
+          setDraft([])
+        }}
+      >
+        <defs>
+          {/* Grid 1 m dan 0,25 m: acuan skala dan snap saat menggambar, bukan hiasan. */}
+          <pattern id="grid-minor" width={0.25 * view.s} height={0.25 * view.s} patternUnits="userSpaceOnUse" x={view.tx} y={view.ty}>
+            <path d={`M ${0.25 * view.s} 0 L 0 0 0 ${0.25 * view.s}`} className="grid-minor" />
+          </pattern>
+          <pattern id="grid-major" width={view.s} height={view.s} patternUnits="userSpaceOnUse" x={view.tx} y={view.ty}>
+            {view.s >= 40 && <rect width={view.s} height={view.s} fill="url(#grid-minor)" />}
+            <path d={`M ${view.s} 0 L 0 0 0 ${view.s}`} className="grid-major" />
+          </pattern>
+        </defs>
+        <rect width="100%" height="100%" fill="url(#grid-major)" />
+
+        <g transform={`translate(${view.tx} ${view.ty}) scale(${view.s})`}>
+          {shown.rooms.map((r) => (
+            <g key={r.id} onPointerDown={selectOn({ kind: 'room', id: r.id })}>
+              <polygon
+                points={r.points.join(' ')}
+                className={isSel('room', r.id) ? 'room room-sel' : 'room'}
+                style={isSel('room', r.id) ? undefined : { fill: FLOORS[r.floor ?? DEFAULT_FLOOR].plan }}
+              />
+            </g>
+          ))}
+
+          {/* Lantai di bawahnya tampil samar sebagai acuan supaya dinding antar lantai bisa disejajarkan. */}
+          {below?.walls.map((w) => (
+            <g key={'below' + w.id} className="below">
+              {wallPolygons(w, below.openings).map((poly, i) => (
+                <polygon key={i} points={poly.join(' ')} />
+              ))}
+            </g>
+          ))}
+
+          {project.furniture.map((f) => (
+            <FurnitureShape
+              key={f.id}
+              f={drag?.id === f.id ? { ...f, pos: drag.pos } : f}
+              selected={isSel('furniture', f.id)}
+              onDown={startDrag(f)}
             />
-          </g>
-        ))}
+          ))}
 
-        {/* Lantai di bawahnya tampil samar sebagai acuan supaya dinding antar lantai bisa disejajarkan. */}
-        {below?.walls.map((w) => (
-          <g key={'below' + w.id} className="below">
-            {wallPolygons(w, below.openings).map((poly, i) => (
-              <polygon key={i} points={poly.join(' ')} />
-            ))}
-          </g>
-        ))}
+          {shown.walls.map((w) => (
+            <WallShape key={w.id} wall={w} openings={shown.openings} selected={isSel('wall', w.id)} onDown={startWallDrag(w.id)} />
+          ))}
 
-        {project.furniture.map((f) => (
-          <FurnitureShape
-            key={f.id}
-            f={drag?.id === f.id ? { ...f, pos: drag.pos } : f}
-            selected={isSel('furniture', f.id)}
-            onDown={startDrag(f)}
-          />
-        ))}
+          {shown.openings.map((o) => {
+            const w = shown.walls.find((x) => x.id === o.wallId)
+            return w ? (
+              <OpeningShape key={o.id} o={odrag?.id === o.id ? { ...o, at: odrag.at } : o} wall={w} selected={isSel('opening', o.id)} onDown={startOpeningDrag(o)} />
+            ) : null
+          })}
 
-        {shown.walls.map((w) => (
-          <WallShape key={w.id} wall={w} openings={shown.openings} selected={isSel('wall', w.id)} onDown={selectOn({ kind: 'wall', id: w.id })} />
-        ))}
+          {/* Nama ruangan di atas furnitur supaya selalu terbaca. */}
+          {shown.rooms.map((r) => (
+            <RoomLabel key={r.id} name={r.name} points={r.points} k={k} />
+          ))}
 
-        {shown.openings.map((o) => {
-          const w = shown.walls.find((x) => x.id === o.wallId)
-          return w ? (
-            <OpeningShape key={o.id} o={o} wall={w} selected={isSel('opening', o.id)} onDown={selectOn({ kind: 'opening', id: o.id })} />
-          ) : null
-        })}
+          {shown.walls.map((w) => (
+            <Dimension key={w.id} a={w.a} b={w.b} k={k} offset={w.thickness / 2 + 14 * k} away={planCenter} rooms={shown.rooms} />
+          ))}
 
-        {/* Nama ruangan di atas furnitur supaya selalu terbaca. */}
-        {shown.rooms.map((r) => (
-          <RoomLabel key={r.id} name={r.name} points={r.points} k={k} />
-        ))}
+          {project.notes?.map((n) => (
+            <NoteShape key={n.id} n={ndrag?.id === n.id ? moveNote(n, ndrag.d) : n} k={k} selected={isSel('note', n.id)} onDown={startNoteDrag(n.id)} />
+          ))}
 
-        {shown.walls.map((w) => (
-          <Dimension key={w.id} a={w.a} b={w.b} k={k} offset={w.thickness / 2 + 14 * k} away={planCenter} rooms={shown.rooms} />
-        ))}
+          {tool === 'select' &&
+            selection?.kind === 'wall' &&
+            shown.walls
+              .filter((w) => w.id === selection.id)
+              .flatMap((w) => [w.a, w.b])
+              .map((q, i) => (
+                <g key={i} className="handle" onPointerDown={startVertexDrag(vdrag ? vdrag.from : q)}>
+                  {/* Area sentuh 22 px, titik terlihat 7 px. */}
+                  <circle cx={q[0]} cy={q[1]} r={22 * k} className="handle-hit" />
+                  <circle cx={q[0]} cy={q[1]} r={7 * k} className="handle-dot" />
+                </g>
+              ))}
 
-        {tool === 'select' &&
-          selection?.kind === 'wall' &&
-          shown.walls
-            .filter((w) => w.id === selection.id)
-            .flatMap((w) => [w.a, w.b])
-            .map((q, i) => (
-              <g key={i} className="handle" onPointerDown={startVertexDrag(vdrag ? vdrag.from : q)}>
-                {/* Area sentuh 22 px, titik terlihat 7 px. */}
-                <circle cx={q[0]} cy={q[1]} r={22 * k} className="handle-hit" />
-                <circle cx={q[0]} cy={q[1]} r={7 * k} className="handle-dot" />
-              </g>
-            ))}
+          {preview && (
+            <OpeningShape o={preview} wall={project.walls.find((w) => w.id === preview.wallId)!} selected ghost />
+          )}
 
-        {preview && (
-          <OpeningShape o={preview} wall={project.walls.find((w) => w.id === preview.wallId)!} selected ghost />
-        )}
+          {draft.length > 0 && work && tool === 'measure' && <NoteShape n={{ id: 'preview', a: draft[0], b: work }} k={k} selected />}
 
-        {draft.length > 0 && work && (tool === 'wall' || tool === 'room') && (
-          <g className="draft">
-            <polyline points={[...draft, work].join(' ')} vectorEffect="non-scaling-stroke" />
-            <Dimension a={draft.at(-1)!} b={work} k={k} offset={14 * k} />
-            {tool === 'room' && draft.length >= 3 && <circle cx={draft[0][0]} cy={draft[0][1]} r={PICK_PX * k} className="close-target" />}
-          </g>
-        )}
+          {draft.length > 0 && (work || typing) && (tool === 'wall' || tool === 'room') && (
+            <g className="draft">
+              <polyline points={[...draft, typedEnd() ?? work!].join(' ')} vectorEffect="non-scaling-stroke" />
+              {typing ? (
+                <text className="typed" x={(typedEnd() ?? from!)[0]} y={(typedEnd() ?? from!)[1] - 12 * k} fontSize={13 * k} strokeWidth={3 * k} textAnchor="middle">
+                  {typing} m, Enter
+                </text>
+              ) : (
+                <Dimension a={draft.at(-1)!} b={work!} k={k} offset={14 * k} />
+              )}
+              {tool === 'room' && draft.length >= 3 && <circle cx={draft[0][0]} cy={draft[0][1]} r={PICK_PX * k} className="close-target" />}
+            </g>
+          )}
 
-        {cursor && tool === 'furniture' && (
-          <FurnitureShape f={{ id: 'preview', kind: furnitureKind, pos: snap(cursor, GRID_SNAP), rot: placeRot }} selected ghost />
-        )}
+          {cursor && tool === 'furniture' && (
+            <FurnitureShape f={{ id: 'preview', kind: furnitureKind, pos: snap(cursor, GRID_SNAP), rot: placeRot }} selected ghost />
+          )}
 
-        {work && (tool === 'wall' || tool === 'room') && (
-          <g className="crosshair">
-            <circle cx={work[0]} cy={work[1]} r={4 * k} />
-          </g>
-        )}
-      </g>
-    </svg>
+          {work && (tool === 'wall' || tool === 'room' || tool === 'measure') && (
+            <g className="crosshair">
+              <circle cx={work[0]} cy={work[1]} r={4 * k} />
+            </g>
+          )}
+        </g>
+      </svg>
+    </>
   )
 }
 
-function WallShape({ wall, openings, selected, onDown }: { wall: Wall; openings: Opening[]; selected: boolean; onDown: (e: RPointerEvent) => void }) {
-  return (
-    <g className={selected ? 'wall wall-sel' : 'wall'} onPointerDown={onDown}>
-      {wallPolygons(wall, openings).map((poly, i) => (
-        <polygon key={i} points={poly.join(' ')} />
-      ))}
-    </g>
-  )
+// Perpotongan garis dari `from` melewati `to` dengan segmen dinding; null kalau sejajar atau di luar dinding.
+function rayOnWall(from: Point, to: Point, w: Wall): Point | null {
+  const r: Point = [to[0] - from[0], to[1] - from[1]]
+  const s: Point = [w.b[0] - w.a[0], w.b[1] - w.a[1]]
+  const den = r[0] * s[1] - r[1] * s[0]
+  if (Math.abs(den) < 1e-9) return null
+  const u = ((w.a[0] - from[0]) * r[1] - (w.a[1] - from[1]) * r[0]) / den
+  if (u < 0 || u > 1) return null
+  return [w.a[0] + s[0] * u, w.a[1] + s[1] * u]
 }
 
-function OpeningShape({ o, wall, selected, ghost, onDown }: { o: Opening; wall: Wall; selected: boolean; ghost?: boolean; onDown?: (e: RPointerEvent) => void }) {
-  const { p, q, lines, arc } = openingSymbol(o, wall)
-  const cls = `opening ${selected ? 'opening-sel' : ''} ${ghost ? 'opening-ghost' : ''}`
-  return (
-    <g className={cls} onPointerDown={onDown}>
-      {/* Area tangkap tak terlihat supaya bukaan mudah dipilih. */}
-      <line x1={p[0]} y1={p[1]} x2={q[0]} y2={q[1]} strokeWidth={Math.max(wall.thickness, 0.3)} className="hit" />
-      {lines.map(([a, b], i) => (
-        <line key={i} x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} vectorEffect="non-scaling-stroke" />
-      ))}
-      {arc && <path d={arc} className="swing" vectorEffect="non-scaling-stroke" />}
-    </g>
-  )
-}
-
-function FurnitureShape({ f, selected, ghost, onDown }: { f: Furniture; selected: boolean; ghost?: boolean; onDown?: (e: RPointerEvent) => void }) {
-  const { w, d } = dims(f)
-  return (
-    <g
-      className={`furn ${selected ? 'furn-sel' : ''} ${ghost ? 'furn-ghost' : ''}`}
-      transform={`translate(${f.pos[0]} ${f.pos[1]}) rotate(${f.rot})`}
-      onPointerDown={onDown}
-    >
-      <rect x={-w / 2} y={-d / 2} width={w} height={d} className="furn-body" />
-      {symbol(f.kind, w, d).map((path, i) => (
-        <path key={i} d={path} vectorEffect="non-scaling-stroke" />
-      ))}
-    </g>
-  )
-}
-
-function Dimension({ a, b, k, offset, away, rooms = [] }: { a: Point; b: Point; k: number; offset: number; away?: Point; rooms?: Room[] }) {
-  const d = dimensionLabel(a, b, offset, { rooms }, away)
-  if (!d) return null
-  return (
-    <text className="dim halo" x={d.x} y={d.y} fontSize={11 * k} strokeWidth={3 * k} transform={`rotate(${d.angle} ${d.x} ${d.y})`} textAnchor="middle" dominantBaseline="middle">
-      {d.text}
-    </text>
-  )
-}
-
-function RoomLabel({ name, points, k }: { name: string; points: Point[]; k: number }) {
-  const [x, y] = centroid(points)
-  return (
-    <g className="room-label">
-      <text x={x} y={y - 7 * k} fontSize={13 * k} strokeWidth={3 * k} textAnchor="middle" className="room-name halo">
-        {name}
-      </text>
-      <text x={x} y={y + 9 * k} fontSize={10 * k} strokeWidth={3 * k} textAnchor="middle" className="dim halo">
-        {polygonArea(points).toFixed(1)} m²
-      </text>
-    </g>
-  )
-}

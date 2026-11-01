@@ -111,8 +111,8 @@ function ProjectsPanel({ name, shared, close }: { name: string; shared: boolean;
                 const f = e.target.files?.[0]
                 e.target.value = ''
                 if (f) run('import', async () => {
-                  const { project: p, name: n } = await importProjectFile(f)
-                  addProject(p, n)
+                  // Proyek terakhir yang diimpor langsung dibuka; file cadangan bisa berisi banyak proyek.
+                  for (const { project: p, name: n } of await importProjectFile(f)) addProject(p, n)
                   close()
                 })
               }}
@@ -147,7 +147,8 @@ function ProjectsPanel({ name, shared, close }: { name: string; shared: boolean;
   )
 }
 
-function CloudSection({ shared, close }: { shared: boolean; close: () => void }) {
+// canLink: tampilkan tombol tautkan proyek yang sedang terbuka (hanya bermakna di editor).
+export function CloudSection({ shared, close, canLink = true }: { shared: boolean; close: () => void; canLink?: boolean }) {
   const session = useCloud((s) => s.session)
   const sync = useCloud((s) => s.sync)
   const syncError = useCloud((s) => s.syncError)
@@ -185,7 +186,7 @@ function CloudSection({ shared, close }: { shared: boolean; close: () => void })
     <section aria-label="Cloud">
       <div className="projects-list-head">
         <h3>Di cloud</h3>
-        {!shared && current && !current.cloudId && (
+        {canLink && !shared && current && !current.cloudId && (
           <button className="btn btn-accent" disabled={!!list.busy} onClick={() => act('link', linkCurrentToCloud)}>
             Simpan proyek ini ke cloud
           </button>

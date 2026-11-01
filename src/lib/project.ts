@@ -1,13 +1,15 @@
 // Model data proyek. Satuan meter. Editor 2D dan tampilan 3D membaca bentuk yang sama.
 
 import { isKind, type Furniture } from './furniture'
-import { isFloor, isWall, type FloorKey, type WallKey } from './materials'
+import { DEFAULT_WALL, isFloor, isWall, type FloorKey, type WallKey } from './materials'
 import { isRoof, type Roof } from './roof'
+import { isStyle, type OpeningStyle } from './openings'
 
 export type Point = [number, number]
 
 // level: id lantai. Kosong = lantai pertama (proyek sebelum fitur bertingkat tidak punya field ini).
-export type Wall = { id: string; a: Point; b: Point; thickness: number; height: number; level?: string }
+// finish: material dinding ini saja. Kosong = ikut material dinding bangunan (Project.wallFinish).
+export type Wall = { id: string; a: Point; b: Point; thickness: number; height: number; level?: string; finish?: WallKey }
 
 export type Opening = {
   id: string
@@ -17,9 +19,15 @@ export type Opening = {
   kind: 'door' | 'window'
   sill: number
   height: number
+  style?: OpeningStyle // kosong = pintu ayun / jendela buka
+  flipHinge?: boolean // engsel di ujung lain
+  flipSide?: boolean // membuka ke sisi lain dinding
 }
 
 export type Room = { id: string; name: string; points: Point[]; floor?: FloorKey; level?: string } // tanpa floor = DEFAULT_FLOOR
+
+// Anotasi gambar: teks bebas (a + text) atau garis ukur manual (a ke b). Hanya di denah, tidak ke 3D.
+export type Note = { id: string; a: Point; b?: Point; text?: string; level?: string }
 
 // Lantai bangunan. elevation = tinggi lantai jadi dari muka tanah (meter).
 export type Level = { id: string; name: string; elevation: number }
@@ -30,10 +38,15 @@ export type Project = {
   openings: Opening[]
   rooms: Room[]
   furniture: Furniture[]
+  notes?: Note[] // kosong = tanpa anotasi
   wallFinish?: WallKey
   levels?: Level[] // kosong = satu lantai
   roof?: Roof // kosong = atap datar
+  // Urutan ruangan di presentasi (id) dan ruangan yang dilewati. Ruangan yang tidak tercantum ikut di belakang.
+  tour?: { order: string[]; hidden: string[] }
 }
+
+export const finishOf = (p: Pick<Project, 'wallFinish'>, w: Pick<Wall, 'finish'>): WallKey => w.finish ?? p.wallFinish ?? DEFAULT_WALL
 
 export const emptyProject = (): Project => ({ version: 1, walls: [], openings: [], rooms: [], furniture: [] })
 
@@ -57,6 +70,7 @@ export function onLevel(p: Project, id: string): Project {
     openings: p.openings.filter((o) => ids.has(o.wallId)),
     rooms: p.rooms.filter((r) => levelOf(p, r) === id),
     furniture: p.furniture.filter((f) => levelOf(p, f) === id),
+    notes: (p.notes ?? []).filter((n) => levelOf(p, n) === id),
   }
 }
 
@@ -87,6 +101,7 @@ export function withLevel(p: Project, id: string, fn: (part: Project) => Project
     openings: [...p.openings.filter((o) => !inPart(part.openings, o)), ...next.openings],
     rooms: [...p.rooms.filter((r) => !inPart(part.rooms, r)), ...next.rooms],
     furniture: [...p.furniture.filter((f) => !inPart(part.furniture, f)), ...next.furniture],
+    notes: [...(p.notes ?? []).filter((n) => !inPart(part.notes ?? [], n)), ...(next.notes ?? [])],
   }
 }
 
@@ -116,6 +131,7 @@ export function removeLevel(p: Project, id: string): Project {
     openings: p.openings.filter((o) => ids.has(o.wallId)),
     rooms: p.rooms.filter(keep).map(pin),
     furniture: p.furniture.filter(keep).map(pin),
+    notes: (p.notes ?? []).filter(keep).map(pin),
   }
 }
 
@@ -127,7 +143,9 @@ export const OPENING_DEFAULTS = {
 
 export const uid = () => Math.random().toString(36).slice(2, 10)
 
-export const round = (n: number, step = 0.01) => Math.round(n / step) * step
+// Dibulatkan lagi ke milimeter: 340 * 0.01 di floating point menjadi 3.4000000000000004.
+const mm = (n: number) => Math.round(n * 1000) / 1000
+export const round = (n: number, step = 0.01) => mm(Math.round(n / step) * step)
 
 export const snap = (p: Point, step: number): Point => [round(p[0], step), round(p[1], step)]
 
@@ -222,6 +240,58 @@ export function moveVertex(p: Project, from: Point, to: Point): Project {
   return { ...p, walls, openings, rooms }
 }
 
+const shift = (q: Point, d: Point): Point => [mm(q[0] + d[0]), mm(q[1] + d[1])]
+
+// Geser satu dinding utuh sejauh d. Sambungan ikut (dinding tetangga memanjang/memendek lewat moveVertex);
+// pintu dan jendela di dinding ini tetap di posisi relatifnya (ikut bergeser bersama dinding).
+export function translateWall(p: Project, id: string, d: Point): Project {
+  const w = p.walls.find((x) => x.id === id)
+  if (!w || (d[0] === 0 && d[1] === 0)) return p
+  const own = new Map(p.openings.filter((o) => o.wallId === id).map((o) => [o.id, o.at]))
+  let next = moveVertex(p, w.a, shift(w.a, d))
+  next = moveVertex(next, w.b, shift(w.b, d))
+  const moved = next.walls.find((x) => x.id === id)!
+  return { ...next, openings: next.openings.map((o) => (own.has(o.id) ? { ...o, at: clampOpening(own.get(o.id)!, o.width, moved) } : o)) }
+}
+
+// Bagi dinding jadi dua di jarak t dari ujung a. Bukaan pindah ke potongan tempatnya berada.
+export function splitWall(p: Project, id: string, t: number): { project: Project; ids: [string, string] } | null {
+  const w = p.walls.find((x) => x.id === id)
+  if (!w || t <= 0.05 || t >= wallLength(w) - 0.05) return null
+  const m = pointAlong(w, t)
+  const first = { ...w, b: m }
+  const second = { ...w, id: uid(), a: m }
+  const openings = p.openings.map((o) => (o.wallId !== id || o.at <= t ? o : { ...o, wallId: second.id, at: o.at - t }))
+  return { project: { ...p, walls: p.walls.flatMap((x) => (x.id === id ? [first, second] : [x])), openings }, ids: [first.id, second.id] }
+}
+
+
+export const moveNote = (n: Note, d: Point): Note => (n.b ? { ...n, a: shift(n.a, d), b: shift(n.b, d) } : { ...n, a: shift(n.a, d) })
+
+// Salinan elemen (dinding beserta bukaannya, ruangan, atau furnitur) bergeser d dari aslinya.
+export function duplicate(p: Project, kind: 'wall' | 'room' | 'furniture' | 'note', id: string, d: Point): { project: Project; id: string } | null {
+  const nid = uid()
+  if (kind === 'wall') {
+    const w = p.walls.find((x) => x.id === id)
+    if (!w) return null
+    const ops = p.openings.filter((o) => o.wallId === id).map((o) => ({ ...o, id: uid(), wallId: nid }))
+    return { project: { ...p, walls: [...p.walls, { ...w, id: nid, a: shift(w.a, d), b: shift(w.b, d) }], openings: [...p.openings, ...ops] }, id: nid }
+  }
+  if (kind === 'room') {
+    const r = p.rooms.find((x) => x.id === id)
+    if (!r) return null
+    return { project: { ...p, rooms: [...p.rooms, { ...r, id: nid, name: `${r.name} (salinan)`, points: r.points.map((q) => shift(q, d)) }] }, id: nid }
+  }
+  if (kind === 'note') {
+    const n = p.notes?.find((x) => x.id === id)
+    if (!n) return null
+    return { project: { ...p, notes: [...(p.notes ?? []), { ...moveNote(n, d), id: nid }] }, id: nid }
+  }
+  const f = p.furniture.find((x) => x.id === id)
+  if (!f) return null
+  return { project: { ...p, furniture: [...p.furniture, { ...f, id: nid, pos: shift(f.pos, d) }] }, id: nid }
+}
+
 export function polygonArea(points: Point[]) {
   let s = 0
   for (let i = 0; i < points.length; i++) {
@@ -251,11 +321,12 @@ export function parseProject(raw: unknown): Project {
   for (const op of o.openings)
     if (typeof op?.id !== 'string' || !wallIds.has(op.wallId) || !(op.width > 0) || !['door', 'window'].includes(op.kind))
       throw new Error('Data bukaan rusak')
+  if (o.openings.some((op) => op.style !== undefined && !isStyle(op.kind, op.style))) throw new Error('Data jenis bukaan rusak')
   for (const r of o.rooms)
     if (typeof r?.id !== 'string' || typeof r.name !== 'string' || !Array.isArray(r.points) || !r.points.every(isPt))
       throw new Error('Data ruangan rusak')
   if (o.rooms.some((r) => r.floor !== undefined && !isFloor(r.floor))) throw new Error('Data material lantai rusak')
-  if (o.wallFinish !== undefined && !isWall(o.wallFinish)) throw new Error('Data material dinding rusak')
+  if ([o.wallFinish, ...o.walls.map((w) => w.finish)].some((f) => f !== undefined && !isWall(f))) throw new Error('Data material dinding rusak')
   // Proyek dari tahap sebelum furnitur belum punya daftar ini.
   const furniture = (o as { furniture?: unknown }).furniture ?? []
   if (!Array.isArray(furniture)) throw new Error('Data furnitur rusak')
@@ -268,6 +339,15 @@ export function parseProject(raw: unknown): Project {
       [f.w, f.d].some((v) => v !== undefined && !(v > 0 && v <= 10))
     )
       throw new Error('Data furnitur rusak')
+  const notes = (o as { notes?: unknown }).notes ?? []
+  if (
+    !Array.isArray(notes) ||
+    notes.some((n) => typeof n?.id !== 'string' || !isPt(n.a) || (n.b !== undefined && !isPt(n.b)) || (n.text !== undefined && typeof n.text !== 'string'))
+  )
+    throw new Error('Data anotasi rusak')
+  const tour = (o as { tour?: { order?: unknown; hidden?: unknown } }).tour
+  const ids = (v: unknown) => Array.isArray(v) && v.every((x) => typeof x === 'string')
+  if (tour !== undefined && (!tour || !ids(tour.order) || !ids(tour.hidden))) throw new Error('Data urutan presentasi rusak')
   if ((o as { roof?: unknown }).roof !== undefined && !isRoof((o as { roof?: unknown }).roof)) throw new Error('Data atap rusak')
   // Lantai: daftar valid dan setiap elemen menunjuk lantai yang ada.
   const levels = (o as { levels?: unknown }).levels
@@ -275,7 +355,7 @@ export function parseProject(raw: unknown): Project {
     if (!Array.isArray(levels) || levels.some((l) => typeof l?.id !== 'string' || typeof l.name !== 'string' || !Number.isFinite(l.elevation)))
       throw new Error('Data lantai rusak')
     const ids = new Set((levels as Level[]).map((l) => l.id))
-    const all: { level?: unknown }[] = [...o.walls, ...o.rooms, ...(furniture as Furniture[])]
+    const all: { level?: unknown }[] = [...o.walls, ...o.rooms, ...(furniture as Furniture[]), ...(notes as Note[])]
     if (all.some((el) => el.level !== undefined && !ids.has(el.level as string))) throw new Error('Elemen menunjuk lantai yang tidak ada')
   }
   return { ...(o as Project), furniture: furniture as Furniture[] }

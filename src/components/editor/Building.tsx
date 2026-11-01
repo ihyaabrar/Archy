@@ -7,8 +7,10 @@ import { useProject } from '@/lib/store'
 import { SHARE_PREFIX, encodeProject } from '@/lib/share'
 import { tourStop } from '@/lib/walk'
 import { onLevel } from '@/lib/project'
+import { moveInTour, setInTour, tourRooms } from '@/lib/presentation'
 import { DEFAULT_ROOF, ROOF_LABELS, ROOF_MATERIALS, type Roof, type RoofMaterial, type RoofType } from '@/lib/roof'
 import { NumberField } from './NumberField'
+import { Guard3D } from '@/components/view3d/Guard3D'
 
 // three.js hanya dimuat saat tampilan 3D dibuka, supaya editor 2D tetap ringan.
 const View3D = dynamic(() => import('@/components/view3d/View3D'), {
@@ -17,10 +19,11 @@ const View3D = dynamic(() => import('@/components/view3d/View3D'), {
 })
 
 // Tur dan mode jalan memakai ruangan di lantai aktif; tampilan 3D memperlihatkan lantai itu dan semua di bawahnya.
-export function Building({ level }: { level: string }) {
+export function Building({ level, onLevel: onLevelChange }: { level: string; onLevel: (id: string) => void }) {
   const project = useProject((s) => s.project)
   const rooms = useMemo(() => onLevel(project, level).rooms, [project, level])
   const [roof, setRoof] = useState(false)
+  const [lamps, setLamps] = useState(false)
   const [hour, setHour] = useState(9) // pagi: bayangan panjang dan jelas, enak untuk membaca bentuk
   const [cam, setCam] = useState<'orbit' | 'walk'>('orbit')
   const [stop, setStop] = useState<number | null>(null)
@@ -40,7 +43,9 @@ export function Building({ level }: { level: string }) {
   return (
     <>
       <section className="canvas-wrap" aria-label="Bangunan 3D">
-        <View3D level={level} roof={roof} hour={hour} mode={cam} input={input} tour={tour} onManual={onManual} onRoom={setHere} />
+        <Guard3D>
+          <View3D level={level} roof={roof} lamps={lamps} hour={hour} mode={cam} input={input} tour={tour} onManual={onManual} onRoom={setHere} onLevel={onLevelChange} />
+        </Guard3D>
         {cam === 'walk' && (
           <>
             <p className="where" aria-live="polite">{here ?? 'Di luar ruangan'}</p>
@@ -86,10 +91,15 @@ export function Building({ level }: { level: string }) {
 
         <label className="field">
           <span>
-            Matahari pukul <strong className="dim-text">{clock(hour)}</strong>
+            {hour > 18 ? 'Malam' : 'Matahari'} pukul <strong className="dim-text">{clock(hour)}</strong>
           </span>
-          <input type="range" className="range" min={6} max={18} step={0.25} value={hour} onChange={(e) => setHour(Number(e.target.value))} />
-          <small className="muted">Timur di kanan denah, utara di atas.</small>
+          <input type="range" className="range" min={6} max={21} step={0.25} value={hour} onChange={(e) => setHour(Number(e.target.value))} />
+          <small className="muted">Timur di kanan denah, utara di atas. Lewat pukul 18.00 matahari terbenam.</small>
+        </label>
+
+        <label className="check">
+          <input type="checkbox" checked={lamps} onChange={(e) => setLamps(e.target.checked)} />
+          Nyalakan lampu ruangan
         </label>
 
         <label className="check">
@@ -99,6 +109,7 @@ export function Building({ level }: { level: string }) {
         <RoofSettings />
         <p className="muted">Ubah denah di tampilan 2D.</p>
 
+        <TourOrder />
         <ShareLink />
       </aside>
     </>
@@ -139,13 +150,43 @@ async function presentationUrl() {
   return `${location.origin}/presentasi#${params}`
 }
 
+// Urutan ruangan di halaman presentasi: naik/turun dan tampil/lewati. Disimpan di proyek, jadi ikut tautan presentasi.
+function TourOrder() {
+  const project = useProject((s) => s.project)
+  const apply = useProject((s) => s.apply)
+  const rooms = useMemo(() => tourRooms(project), [project])
+  if (rooms.length < 2) return null
+  const hidden = project.tour?.hidden ?? []
+  return (
+    <fieldset className="picker tour-order">
+      <legend>Urutan ruangan di presentasi</legend>
+      <ol>
+        {rooms.map((r, i) => (
+          <li key={r.id}>
+            <label className="check">
+              <input type="checkbox" checked={!hidden.includes(r.id)} onChange={(e) => apply((p) => setInTour(p, r.id, e.target.checked))} />
+              {r.name}
+            </label>
+            <button className="link-btn" disabled={i === 0} onClick={() => apply((p) => moveInTour(p, r.id, -1))} aria-label={`Naikkan ${r.name}`}>
+              Naik
+            </button>
+            <button className="link-btn" disabled={i === rooms.length - 1} onClick={() => apply((p) => moveInTour(p, r.id, 1))} aria-label={`Turunkan ${r.name}`}>
+              Turun
+            </button>
+          </li>
+        ))}
+      </ol>
+    </fieldset>
+  )
+}
+
 function ShareLink() {
   const [state, setState] = useState<{ kind: 'idle' | 'busy' | 'copied' | 'manual' | 'error'; url?: string; msg?: string; what?: string }>({ kind: 'idle' })
   const copy = async (what: 'denah' | 'presentasi') => {
     setState({ kind: 'busy' })
     try {
       const url =
-        what === 'denah' ? location.origin + location.pathname + SHARE_PREFIX + (await encodeProject(useProject.getState().project)) : await presentationUrl()
+        what === 'denah' ? `${location.origin}/proyek/kiriman` + SHARE_PREFIX + (await encodeProject(useProject.getState().project)) : await presentationUrl()
       try {
         await navigator.clipboard.writeText(url)
         setState({ kind: 'copied', url, what })
@@ -234,7 +275,7 @@ function RoofSettings() {
           <button className="btn" onClick={() => set({ ridge: roof.ridge === 'auto' ? 'putar' : 'auto' })}>
             Putar arah bubungan
           </button>
-          <p className="muted">Atap miring dibuat dari kotak luar dinding lantai teratas.</p>
+          <p className="muted">Atap miring mengikuti tapak dinding lantai teratas; denah L atau T dapat sayap atap sendiri. Dinding miring memakai kotak luarnya.</p>
         </>
       )}
     </fieldset>

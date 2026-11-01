@@ -1,6 +1,7 @@
 'use client'
 
 import { useRef, useState, type FormEvent } from 'react'
+import Link from 'next/link'
 import { signIn, signOut, signUp, supabase, useCloud } from '@/lib/cloud'
 
 // Tombol akun di header. Tidak tampil kalau layanan cloud belum dikonfigurasi (env kosong).
@@ -10,6 +11,13 @@ export function AccountButton() {
   const ready = useCloud((s) => s.ready)
   const email = useCloud((s) => s.session?.user.email)
   if (!supabase() || !ready) return null
+  // Belum masuk: ke halaman login, lalu kembali ke halaman ini.
+  if (!email)
+    return (
+      <Link className="tool btn-link" href={`/masuk?kembali=${encodeURIComponent(location.pathname)}`}>
+        Masuk
+      </Link>
+    )
   return (
     <>
       <button
